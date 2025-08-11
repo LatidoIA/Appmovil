@@ -15,15 +15,17 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install dependencies
-        run: npm ci || npm i --legacy-peer-deps
+- name: Install dependencies
+  run: npm ci || npm i --legacy-peer-deps
 
-      - name: Setup Expo + EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EAS_TOKEN }}
+- name: Install EAS CLI (global)
+  run: npm i -g eas-cli
 
-      - name: Build Android only
-        run: |
-          npx eas build --platform android --profile production --non-interactive
+- name: Build Android only
+  env:
+    EAS_NON_INTERACTIVE: "1"
+    EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
+  run: |
+    eas whoami || true
+    eas build --platform android --profile production --non-interactive
+
