@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Latido IA",
-    "slug": "latido-ia",
+    "slug": "latido",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
