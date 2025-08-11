@@ -15,6 +15,14 @@ import theme from './theme';
 import ArticulosScreen from './ArticulosScreen';
 import FarmaciaScreen from './FarmaciaScreen';
 
+// >>> Health Connect helper <<<
+import {
+  hcEnsureAvailable,
+  hcInitAndRequest,
+  hcReadLatestHeartRate,
+  hcReadStepsToday
+} from './src/health';
+
 const MEDS_KEY   = '@latido_meds';
 const EXAMS_KEY  = '@latido_exam_history';
 const GLUC_KEY   = '@glucose_history';
@@ -33,6 +41,32 @@ export default function CuidadoPersonalScreen() {
   const [examCount, setExamCount] = useState(0);
   const [glucoseCount, setGlucoseCount] = useState(0);
   const [streakCount, setStreakCount] = useState(0);
+
+  // ----- Health Connect (FC y Pasos) -----
+  const [hcStatus, setHcStatus] = useState('init'); // init | no-hc | no-perms | ok
+  const [lastHr, setLastHr] = useState(null);
+  const [steps, setSteps] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const available = await hcEnsureAvailable();
+        if (!available) { setHcStatus('no-hc'); return; }
+
+        const granted = await hcInitAndRequest();
+        if (!granted?.length) { setHcStatus('no-perms'); return; }
+
+        const hr = await hcReadLatestHeartRate();
+        const st = await hcReadStepsToday();
+        setLastHr(hr);
+        setSteps(st);
+        setHcStatus('ok');
+      } catch (e) {
+        // Si algo falla, mostramos estado genérico
+        setHcStatus('no-hc');
+      }
+    })();
+  }, []);
 
   // ---- cargar datos base ----
   useEffect(() => {
@@ -138,6 +172,25 @@ export default function CuidadoPersonalScreen() {
       case 'Para ti':
         return (
           <View style={styles.content}>
+            {/* ---- Card Health Connect ---- */}
+            <View style={styles.hcCard}>
+              <CustomText style={styles.hcTitle}>Reloj (Health Connect)</CustomText>
+
+              {hcStatus === 'init' && <CustomText>Cargando…</CustomText>}
+              {hcStatus === 'no-hc' && (
+                <CustomText>Instala/activa Health Connect y vuelve a abrir la app.</CustomText>
+              )}
+              {hcStatus === 'no-perms' && (
+                <CustomText>Permisos denegados. Concede acceso en Health Connect.</CustomText>
+              )}
+              {hcStatus === 'ok' && (
+                <>
+                  <CustomText>FC último: {lastHr?.samples?.[0]?.beatsPerMinute ?? '—'} bpm</CustomText>
+                  <CustomText>Pasos hoy: {steps?.total ?? 0}</CustomText>
+                </>
+              )}
+            </View>
+
             {/* Farmacia preview */}
             <TouchableOpacity style={styles.previewRow} onPress={goFarmacia} activeOpacity={0.8}>
               <CustomText style={styles.previewTitle}>Farmacia</CustomText>
@@ -286,6 +339,25 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm
   },
 
+  // ---- Health Connect card ----
+  hcCard: {
+    marginBottom: theme.spacing.md,
+    padding: theme.spacing.sm,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.shape.borderRadius,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2 },
+      android: { elevation: 1 }
+    })
+  },
+  hcTitle: {
+    fontSize: theme.fontSizes.md,
+    fontFamily: theme.typography.subtitle.fontFamily,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.xs
+  },
+
+  // ---- Farmacia / Insignias / Artículos ----
   previewSection: { marginBottom: theme.spacing.md },
   previewRow: {
     marginBottom: theme.spacing.md,
@@ -304,7 +376,7 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs
   },
   previewText: { fontSize: theme.fontSizes.sm, fontFamily: theme.typography.body.fontFamily, color: theme.colors.textSecondary },
-  previewLink: { fontSize: theme.fontSizes.md, color: theme.colors.primary, fontFamily: theme.typography.body.fontFamily },
+  previewLink: { fontSize: theme.fontSizes.md, color: theme.colors.primary, fontFamily: theme.typTypography?.body?.fontFamily || theme.typography.body.fontFamily },
 
   // Insignias
   badgesContainer: { marginTop: theme.spacing.xs },
