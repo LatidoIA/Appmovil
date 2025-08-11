@@ -1,29 +1,58 @@
 {
   "expo": {
-    "name": "latido-ia",
-    "slug": "snack-cf54dd3b-36b8-48f2-a681-7444100e599a",
+    "name": "Latido IA",
+    "slug": "latido-ia",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Se usa para compartir tu ubicación en emergencias.",
+        "NSMicrophoneUsageDescription": "Se usa para detección por voz en emergencias."
+      }
     },
     "android": {
+      "package": "com.latidoia.app",
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "VIBRATE",
+        "CALL_PHONE",
+        "RECORD_AUDIO",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true
+      }
     },
+    "plugins": [
+      "expo-health-connect",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "minSdkVersion": 26
+          }
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "2ac93018-3731-4e46-b345-6d54a5502b8f"
+      }
     }
   }
 }
