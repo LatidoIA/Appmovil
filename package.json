@@ -37,7 +37,6 @@
     "react-native-gesture-handler": "~2.24.0",
     "@expo-google-fonts/montserrat": "*",
     "@react-navigation/bottom-tabs": "^6.4.4",
-    "@react-navigation/native-stack": "*",
     "react-native-safe-area-context": "5.4.0",
     "react-native-immediate-phone-call": "*",
 
