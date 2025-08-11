@@ -24,6 +24,33 @@ jobs:
       - name: Install EAS CLI (global)
         run: npm i -g eas-cli
 
+      # --- Keystore local desde secrets ---
+      - name: Prepare keystore file
+        shell: bash
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > keystore.jks
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+      - name: Create credentials.json
+        run: |
+          cat > credentials.json <<'EOF'
+          {
+            "android": {
+              "keystore": {
+                "keystorePath": "keystore.jks",
+                "keystorePassword": "${ANDROID_KEYSTORE_PASSWORD}",
+                "keyAlias": "${ANDROID_KEY_ALIAS}",
+                "keyPassword": "${ANDROID_KEY_PASSWORD}"
+              }
+            }
+          }
+          EOF
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
       - name: Build Android (production)
         env:
           EAS_NON_INTERACTIVE: "1"
