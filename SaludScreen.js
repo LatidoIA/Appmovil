@@ -1,3 +1,4 @@
+// SaludScreen.js
 import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
@@ -12,11 +13,20 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import SamsungHealth from 'react-native-samsung-health';
+// ⬇️ REEMPLAZO: quitamos react-native-samsung-health
+// import SamsungHealth from 'react-native-samsung-health';
 import { LatidoPower } from './LatidoPower';
 import CustomText from './CustomText';
 import CuidadorScreen from './CuidadorScreen';
 import theme from './theme';
+
+// ⬇️ Health Connect helpers (MVP: HR y Steps)
+import {
+  hcEnsureAvailable,
+  hcInitAndRequest,
+  hcReadLatestHeartRate,
+  hcReadStepsToday
+} from './src/health';
 
 const PROFILE_KEY = '@latido_profile';
 const MEDS_KEY = '@latido_meds';
@@ -24,10 +34,10 @@ const MEDS_KEY = '@latido_meds';
 // ---------- Helpers Vital ----------
 function computeVital(metrics = {}, mood) {
   const vals = [];
-  if (metrics.heart_rate != null) vals.push(Math.min(metrics.heart_rate / 180 * 100, 100));
-  if (metrics.steps      != null) vals.push(Math.min(metrics.steps        / 10000 * 100, 100));
-  if (metrics.sleep      != null) vals.push(Math.min(metrics.sleep        / 8     * 100, 100));
-  if (metrics.spo2       != null) vals.push(metrics.spo2);
+  if (metrics.heart_rate != null) vals.push(Math.min((metrics.heart_rate / 180) * 100, 100));
+  if (metrics.steps != null) vals.push(Math.min((metrics.steps / 10000) * 100, 100));
+  if (metrics.sleep != null) vals.push(Math.min((metrics.sleep / 8) * 100, 100));
+  if (metrics.spo2 != null) vals.push(metrics.spo2);
   if (mood === '😊') vals.push(100);
   else if (mood === '😐') vals.push(50);
   else if (mood === '😔') vals.push(0);
@@ -77,7 +87,7 @@ function secondsUntilNextFromStart(startHHMM, intervalHours) {
 
   if (now.getTime() <= startToday.getTime()) {
     return Math.ceil((startToday.getTime() - now.getTime()) / 1000);
-  }
+    }
   const passed = now.getTime() - startToday.getTime();
   const k = Math.ceil(passed / stepMs);
   const next = startToday.getTime() + k * stepMs;
@@ -118,11 +128,14 @@ export default function SaludScreen() {
   const [nowTick, setNowTick] = useState(Date.now()); // para refrescar cuenta regresiva
   const etaTimerRef = useRef(null);
 
+  // Estado interno para Health Connect
+  const hcReadyRef = useRef(false);
+
   // Cargar perfil
   useEffect(() => {
     AsyncStorage.getItem(PROFILE_KEY)
       .then(raw => raw && setPatient(JSON.parse(raw)))
-      .catch(console.error);
+      .catch(() => {});
   }, []);
 
   // Cargar meds y calcular “próximo”
@@ -152,7 +165,7 @@ export default function SaludScreen() {
 
       const { x: item, nextAt } = withNext[0];
       setNextInfo({ item, nextAt, isPaused: !item.reminderOn });
-    } catch (e) {
+    } catch {
       setNextInfo(null);
     }
   };
@@ -179,7 +192,7 @@ export default function SaludScreen() {
     }
   }, [nowTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Permisos en Android
+  // Permisos Android adicionales (opcionales para sensores/actividad)
   useEffect(() => {
     if (Platform.OS === 'android') {
       PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS).catch(() => {});
@@ -187,34 +200,58 @@ export default function SaludScreen() {
     }
   }, []);
 
-  // Fetch métricas cada 15s
+  // Fetch métricas cada 15s usando Health Connect (HR + Steps)
   useEffect(() => {
     let interval;
+    async function ensureHC() {
+      if (hcReadyRef.current) return true;
+      const available = await hcEnsureAvailable();
+      if (!available) {
+        // No forzamos Alert para no interrumpir; se mostrará con valores '—'
+        return false;
+      }
+      const granted = await hcInitAndRequest();
+      if (!granted?.length) return false;
+      hcReadyRef.current = true;
+      return true;
+    }
+
     async function fetchMetrics() {
       if (!patient.id) return;
+
+      const ready = await ensureHC();
       let newMetrics = {};
-      if (SamsungHealth && typeof SamsungHealth.getDailySteps === 'function') {
-        try {
-          const [hr, st, sl, sp] = await Promise.all([
-            SamsungHealth.getDailySteps(SamsungHealth.HEALTH_DATA.HEART_RATE),
-            SamsungHealth.getDailySteps(SamsungHealth.HEALTH_DATA.STEPS),
-            SamsungHealth.getDailySteps(SamsungHealth.HEALTH_DATA.SLEEP),
-            SamsungHealth.getDailySteps(SamsungHealth.HEALTH_DATA.SPO2)
-          ]);
-          newMetrics = {
-            heart_rate: hr.pop()?.value || null,
-            steps:      st.pop()?.value || null,
-            sleep:      sl.pop()?.value || null,
-            spo2:       sp.pop()?.value || null
-          };
-        } catch {
-          // Si SamsungHealth no está disponible, mantenemos métricas vacías
+      try {
+        // HR
+        let hrVal = null;
+        if (ready) {
+          const last = await hcReadLatestHeartRate();
+          hrVal = last?.samples?.[0]?.beatsPerMinute ?? null;
         }
+        // Steps
+        let stepsVal = null;
+        if (ready) {
+          const stp = await hcReadStepsToday();
+          stepsVal = stp?.total ?? null;
+        }
+
+        // MVP: Sleep/SpO2 quedan para PR siguiente
+        newMetrics = {
+          heart_rate: hrVal,
+          steps: stepsVal,
+          sleep: null,
+          spo2: null
+        };
+      } catch {
+        // si algo falla, dejamos métricas vacías
+        newMetrics = {};
       }
+
       setMetrics(newMetrics);
       const { score, color } = computeVital(newMetrics, mood);
       setPower({ score, color });
     }
+
     fetchMetrics();
     interval = setInterval(fetchMetrics, 15000);
     return () => clearInterval(interval);
