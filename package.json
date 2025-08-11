@@ -1,0 +1,53 @@
+{
+  "license": "0BSD",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "expo": "~53.0.20",
+    "expo-status-bar": "~2.2.3",
+    "react": "19.0.0",
+    "react-native": "0.79.5",
+    "expo-av": "~15.1.7",
+    "d3-shape": "*",
+    "expo-audio": "~0.4.8",
+    "expo-speech": "~13.1.7",
+    "expo-location": "~18.1.6",
+    "expo-clipboard": "~7.1.5",
+    "expo-constants": "~17.1.7",
+    "expo-app-loading": "*",
+    "expo-file-system": "~18.1.11",
+    "expo-permissions": "*",
+    "react-native-svg": "15.11.2",
+    "@expo/vector-icons": "^14.1.0",
+    "expo-notifications": "~0.31.4",
+    "expo-splash-screen": "~0.30.10",
+    "expo-linear-gradient": "~14.1.5",
+    "react-native-screens": "~4.11.1",
+    "react-native-progress": "*",
+    "@react-navigation/stack": "^6.3.16",
+    "react-native-pager-view": "6.7.1",
+    "react-native-reanimated": "~3.17.4",
+    "react-native-svg-charts": "5.4.0",
+    "@react-navigation/native": "^6.1.6",
+    "@react-native-voice/voice": "*",
+    "@react-native-picker/picker": "2.11.1",
+    "react-native-samsung-health": "*",
+    "react-native-gesture-handler": "~2.24.0",
+    "@expo-google-fonts/montserrat": "*",
+    "@react-navigation/bottom-tabs": "^6.4.4",
+    "@react-navigation/native-stack": "*",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-immediate-phone-call": "*",
+    "@react-navigation/material-top-tabs": "*",
+    "@react-native-async-storage/async-storage": "2.1.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0"
+  },
+  "private": true
+}
