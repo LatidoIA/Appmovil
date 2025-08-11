@@ -121,8 +121,9 @@ function MainTabs() {
     phoneNumber: profile.emergencyContact,
     whatsappNumber: profile.emergencyContact,
     whatsappText: `${profile.emergencyName}, necesito ayuda.`,
-    alertSound: require('./assets/sounds/alert.wav'),
-    tickSound: require('./assets/sounds/tick.wav'),
+    // ⬇️ Ajuste de rutas: tus wav están en la raíz del repo
+    alertSound: require('./alert.wav'),
+    tickSound: require('./tick.wav'),
     testMode: settings.emergencyTestMode
   });
 
