@@ -14,21 +14,18 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-
-import SaludScreen from './SaludScreen';
-import LatidoScreen from './LatidoScreen';
-import HistoryScreen from './HistoryScreen';
-import CuidadoPersonalScreen from './CuidadoPersonalScreen';
-import ProfileScreen from './ProfileScreen';
-import StreakScreen from './StreakScreen';
-import SettingsScreen from './SettingsScreen';
-import MedicationsScreen from './MedicationsScreen';
-import { useEmergency } from './useEmergency';
 import CustomText from './CustomText';
 import theme from './theme';
 
-// ⬇️ NUEVO: capturador global de crashes JS
-import CrashCatcher from './CrashCatcher';
+// 👉 Enchufa tu crash logger lo MÁS temprano posible
+try {
+  // si tu archivo exporta side-effects, con importar basta;
+  // si exporta una función install(), también la intentamos llamar.
+  const crash = require('./crash');
+  crash?.install?.();
+} catch (e) {
+  // no rompas el arranque si falla
+}
 
 // --- Ignorar warnings conocidos ---
 LogBox.ignoreLogs([
@@ -74,6 +71,41 @@ function daysBetweenUTC(aStr, bStr) {
 }
 
 const Tab = createBottomTabNavigator();
+const Stack = createStackNavigator();
+
+/**
+ * Util para diferir la EJECUCIÓN de módulos “pesados”.
+ * Metro incluirá el código en el bundle, pero el módulo no se evalúa
+ * hasta que montamos el screen por primera vez.
+ */
+function lazyScreen(loader) {
+  return function Lazy(props) {
+    const [C, setC] = React.useState(null);
+    useEffect(() => {
+      let alive = true;
+      loader().then(m => { if (alive) setC(() => m.default || m); })
+              .catch(e => console.debug('Lazy load error:', e?.message || e));
+      return () => { alive = false; };
+    }, []);
+    if (!C) return null;
+    return <C {...props} />;
+  };
+}
+
+// ⚠️ Dejamos de importar screens arriba.
+//    Ahora los cargamos perezosamente para evitar que libs nativas se inicialicen en el arranque.
+const SaludScreenLazy           = lazyScreen(() => import('./SaludScreen'));
+const LatidoScreenLazy          = lazyScreen(() => import('./LatidoScreen'));
+const HistoryScreenLazy         = lazyScreen(() => import('./HistoryScreen'));
+const CuidadoPersonalScreenLazy = lazyScreen(() => import('./CuidadoPersonalScreen'));
+const ProfileScreenLazy         = lazyScreen(() => import('./ProfileScreen'));
+const StreakScreenLazy          = lazyScreen(() => import('./StreakScreen'));
+const SettingsScreenLazy        = lazyScreen(() => import('./SettingsScreen'));
+const MedicationsScreenLazy     = lazyScreen(() => import('./MedicationsScreen'));
+
+// 👇 OJO: el hook useEmergency importaba módulos nativos al cargar el archivo.
+//     Lo vamos a seguir usando, pero su archivo será “safe” (ver cambio en useEmergency.js).
+import { useEmergency } from './useEmergency';
 
 function MainTabs() {
   const navigation = useNavigation();
@@ -124,7 +156,6 @@ function MainTabs() {
     phoneNumber: profile.emergencyContact,
     whatsappNumber: profile.emergencyContact,
     whatsappText: `${profile.emergencyName}, necesito ayuda.`,
-    // ⬇️ Ajuste de rutas: tus wav están en la raíz del repo
     alertSound: require('./alert.wav'),
     tickSound: require('./tick.wav'),
     testMode: settings.emergencyTestMode
@@ -132,6 +163,7 @@ function MainTabs() {
 
   return (
     <Tab.Navigator
+      // evita montar tabs hasta que el usuario entra (menos nativo ejecutándose)
       screenOptions={({ route, navigation }) => ({
         headerShown: true,
         headerTitle: '',
@@ -197,16 +229,15 @@ function MainTabs() {
         },
         tabBarStyle: { backgroundColor: theme.colors.surface },
       })}
+      lazy
     >
-      <Tab.Screen name="Salud"     component={SaludScreen}             options={{ tabBarLabel: 'Salud' }} />
-      <Tab.Screen name="Examen"    component={LatidoScreen}            options={{ tabBarLabel: 'Examen' }} />
-      <Tab.Screen name="Historial" component={HistoryScreen}           options={{ tabBarLabel: 'Historial' }} />
-      <Tab.Screen name="Cuidado"   component={CuidadoPersonalScreen}   options={{ tabBarLabel: 'Cuidado' }} />
+      <Tab.Screen name="Salud"     component={SaludScreenLazy}           options={{ tabBarLabel: 'Salud' }} />
+      <Tab.Screen name="Examen"    component={LatidoScreenLazy}          options={{ tabBarLabel: 'Examen' }} />
+      <Tab.Screen name="Historial" component={HistoryScreenLazy}         options={{ tabBarLabel: 'Historial' }} />
+      <Tab.Screen name="Cuidado"   component={CuidadoPersonalScreenLazy} options={{ tabBarLabel: 'Cuidado' }} />
     </Tab.Navigator>
   );
 }
-
-const Stack = createStackNavigator();
 
 export default function App() {
   const [fontsLoaded] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_700Bold });
@@ -217,17 +248,14 @@ export default function App() {
     }
   }, [fontsLoaded]);
 
-  // Configuración de notificaciones (permiso + canal + webhook al abrir notificación)
+  // Configuración de notificaciones
   useEffect(() => {
     let responseSub;
-
     (async () => {
       try {
         if (Platform.OS === 'ios') {
           const { status } = await Notifications.requestPermissionsAsync();
-          if (status !== 'granted') {
-            console.debug('Notifs: permiso iOS no concedido');
-          }
+          if (status !== 'granted') console.debug('Notifs: permiso iOS no concedido');
         }
         if (Platform.OS === 'android') {
           await Notifications.setNotificationChannelAsync('alarms', {
@@ -300,13 +328,8 @@ export default function App() {
           cnt = 1;
         } else {
           const diff = daysBetweenUTC(last, today);
-          if (diff === 0) {
-            // ya contado hoy
-          } else if (diff === 1) {
-            cnt += 1;
-          } else if (diff > 1) {
-            cnt = 1;
-          }
+          if (diff === 1) cnt += 1;
+          else if (diff > 1) cnt = 1;
         }
         if (cnt > best) best = cnt;
 
@@ -321,7 +344,8 @@ export default function App() {
     })();
   }, []);
 
-  // ⬇️ ANTES devolvía null si no había fuentes; ahora montamos CrashCatcher siempre
+  if (!fontsLoaded) return null;
+
   const navTheme = {
     ...DefaultTheme,
     colors: {
@@ -334,18 +358,14 @@ export default function App() {
   };
 
   return (
-    <CrashCatcher>
-      {fontsLoaded ? (
-        <NavigationContainer theme={navTheme}>
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="Main" component={MainTabs} />
-            <Stack.Screen name="Profile" component={ProfileScreen} />
-            <Stack.Screen name="Streak" component={StreakScreen} />
-            <Stack.Screen name="Settings" component={SettingsScreen} />
-            <Stack.Screen name="Medications" component={MedicationsScreen} />
-          </Stack.Navigator>
-        </NavigationContainer>
-      ) : null}
-    </CrashCatcher>
+    <NavigationContainer theme={navTheme}>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Main"        component={MainTabs} />
+        <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
+        <Stack.Screen name="Streak"      component={StreakScreenLazy} />
+        <Stack.Screen name="Settings"    component={SettingsScreenLazy} />
+        <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
