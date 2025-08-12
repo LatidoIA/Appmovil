@@ -1,7 +1,7 @@
 // app.config.js
 const { withAppBuildGradle } = require('@expo/config-plugins');
 
-// Elimina libs antiguas "com.android.support" que chocan con AndroidX
+// Quita libs antiguas "com.android.support" que chocan con AndroidX
 const withStripSupportLibs = (config) =>
   withAppBuildGradle(config, (cfg) => {
     let s = cfg.modResults.contents;
@@ -9,7 +9,6 @@ const withStripSupportLibs = (config) =>
       s = s.replace(
         /(^|\n)dependencies\s*{/,
         `$1configurations.all {
-  // Evita clases duplicadas con AndroidX
   exclude group: 'com.android.support', module: 'support-compat'
   exclude group: 'com.android.support', module: 'animated-vector-drawable'
   exclude group: 'com.android.support', module: 'support-vector-drawable'
@@ -29,15 +28,12 @@ module.exports = {
     name: 'Latido',
     slug: 'latido',
 
-    // Requerido por builds desde GitHub
     android: { package: 'com.latido.app' },
 
-    // Requerido por GitHub integration (presente aunque no tengas el secreto).
-    // Si tienes el secreto EAS_PROJECT_ID en GitHub, se usará automáticamente.
+    // 🔧 PON AQUÍ TU PROJECT ID REAL
     extra: {
       eas: {
-        projectId:
-          process.env.EAS_PROJECT_ID || '00000000-0000-0000-0000-000000000000',
+        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f',
       },
     },
 
@@ -58,5 +54,9 @@ module.exports = {
       ],
       withStripSupportLibs,
     ],
+
+    version: '1.0.0',
+    sdkVersion: '53.0.0',
+    platforms: ['ios', 'android'],
   },
 };
