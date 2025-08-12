@@ -1,0 +1,11 @@
+node_modules
+.expo
+.expo-shared
+dist
+build
+android
+ios
+
+# Asegurar que viajen a EAS:
+!credentials.json
+!keystore.jks
