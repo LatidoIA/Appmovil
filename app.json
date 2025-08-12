@@ -4,10 +4,10 @@
     "slug": "latido",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -29,7 +29,7 @@
         "ACCESS_FINE_LOCATION"
       ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./adaptive-icon.png",
         "backgroundColor": "#ffffff"
       }
     },
@@ -46,13 +46,7 @@
         }
       ]
     ],
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "2ac93018-3731-4e46-b345-6d54a5502b8f"
-      }
-    }
+    "web": { "favicon": "./assets/favicon.png" },
+    "extra": { "eas": { "projectId": "2ac93018-3731-4e46-b345-6d54a5502b8f" } }
   }
 }
