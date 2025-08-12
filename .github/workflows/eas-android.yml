@@ -33,7 +33,7 @@ jobs:
 
       - name: Create credentials.json
         run: |
-          cat > credentials.json <<'EOF'
+          cat > credentials.json <<EOF
           {
             "android": {
               "keystore": {
