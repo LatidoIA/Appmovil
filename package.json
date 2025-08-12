@@ -44,7 +44,8 @@
     "react-native-immediate-phone-call": "1.0.0",
 
     "@react-native-async-storage/async-storage": "2.1.2",
-    "expo-health-connect": "^0.1.0"
+    "expo-health-connect": "^0.1.0",
+    "react-native-health-connect": "^3.3.3"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
@@ -55,5 +56,13 @@
     "@expo/config-plugins": "~10.1.2",
     "@expo/prebuild-config": "~9.0.0"
   },
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "listUnknownPackages": false
+      }
+    }
+  },
   "private": true
 }
+
