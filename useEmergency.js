@@ -4,7 +4,6 @@ import { Linking, Vibration, Alert, Platform } from 'react-native';
 import Voice from '@react-native-voice/voice';
 import * as Location from 'expo-location';
 import { Audio } from 'expo-audio'; // usamos expo-audio (no expo-av)
-import immediatePhoneCall from 'react-native-immediate-phone-call';
 
 export function useEmergency({
   phoneNumber,
@@ -67,6 +66,22 @@ export function useEmergency({
     }
   }, []);
 
+  async function callNow(num) {
+    try {
+      if (!num) return false;
+      const sanitized = String(num).trim();
+      const scheme = Platform.OS === 'ios' ? 'telprompt:' : 'tel:';
+      const url = `${scheme}${sanitized}`;
+      const can = await Linking.canOpenURL(url);
+      if (!can) throw new Error('cannot open tel url');
+      await Linking.openURL(url);
+      return true;
+    } catch {
+      Alert.alert('Error', 'No se pudo iniciar la llamada.');
+      return false;
+    }
+  }
+
   // --------- Disparo real ---------
   const triggerEmergency = useCallback(async () => {
     // Antirebote
@@ -94,16 +109,7 @@ export function useEmergency({
 
     // Llamada telefónica (si hay número)
     if (phoneNumber) {
-      try {
-        if (Platform.OS === 'android') {
-          try { immediatePhoneCall(phoneNumber); }
-          catch (e) { await Linking.openURL(`tel:${phoneNumber}`); }
-        } else {
-          await Linking.openURL(`tel:${phoneNumber}`);
-        }
-      } catch (e) {
-        Alert.alert('Error', 'No se pudo iniciar la llamada.');
-      }
+      await callNow(phoneNumber);
     }
 
     // WhatsApp (si hay número)
