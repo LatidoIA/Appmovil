@@ -27,6 +27,9 @@ import { useEmergency } from './useEmergency';
 import CustomText from './CustomText';
 import theme from './theme';
 
+// ⬇️ NUEVO: capturador global de crashes JS
+import CrashCatcher from './CrashCatcher';
+
 // --- Ignorar warnings conocidos ---
 LogBox.ignoreLogs([
   '[expo-av]: Expo AV has been deprecated',
@@ -318,8 +321,7 @@ export default function App() {
     })();
   }, []);
 
-  if (!fontsLoaded) return null;
-
+  // ⬇️ ANTES devolvía null si no había fuentes; ahora montamos CrashCatcher siempre
   const navTheme = {
     ...DefaultTheme,
     colors: {
@@ -332,14 +334,18 @@ export default function App() {
   };
 
   return (
-    <NavigationContainer theme={navTheme}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Main" component={MainTabs} />
-        <Stack.Screen name="Profile" component={ProfileScreen} />
-        <Stack.Screen name="Streak" component={StreakScreen} />
-        <Stack.Screen name="Settings" component={SettingsScreen} />
-        <Stack.Screen name="Medications" component={MedicationsScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <CrashCatcher>
+      {fontsLoaded ? (
+        <NavigationContainer theme={navTheme}>
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="Main" component={MainTabs} />
+            <Stack.Screen name="Profile" component={ProfileScreen} />
+            <Stack.Screen name="Streak" component={StreakScreen} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="Medications" component={MedicationsScreen} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      ) : null}
+    </CrashCatcher>
   );
 }
