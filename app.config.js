@@ -1,38 +1,46 @@
 // app.config.js
-const { withAndroidManifest } = require('@expo/config-plugins');
+const { withAppBuildGradle } = require('@expo/config-plugins');
 
-// Plugin inline: añade tools:replace para resolver el conflicto
-const withReplaceAppComponentFactory = (config) =>
-  withAndroidManifest(config, (cfg) => {
-    const manifest = cfg.modResults;
-    // Asegura el namespace tools
-    manifest.manifest.$ = manifest.manifest.$ || {};
-    manifest.manifest.$['xmlns:tools'] = 'http://schemas.android.com/tools';
+// Quita cualquier librería antigua "com.android.support" que esté entrando por dependencias
+const withExcludeSupportLibs = (config) =>
+  withAppBuildGradle(config, (cfg) => {
+    let src = cfg.modResults.contents;
+    if (!src.includes("exclude group: 'com.android.support'")) {
+      src = src.replace(
+        /(^|\n)dependencies\s*{/,
+        `$1configurations.all {
+  // Evita clases duplicadas con AndroidX
+  exclude group: 'com.android.support'
+}
 
-    const app = manifest.manifest.application?.[0];
-    if (app) {
-      app.$ = app.$ || {};
-      // Resuelve choque entre androidx.core y support-compat
-      app.$['tools:replace'] = 'android:appComponentFactory';
-      app.$['android:appComponentFactory'] = 'androidx.core.app.CoreComponentFactory';
+dependencies {`
+      );
+      cfg.modResults.contents = src;
     }
     return cfg;
   });
 
-module.exports = ({ config }) => ({
-  ...config,
-  // Mantiene lo existente y añade nuestros plugins
-  plugins: [
-    withReplaceAppComponentFactory,
-    ...(config.plugins || []),
-    [
-      'expo-build-properties',
-      {
-        android: {
-          compileSdkVersion: 35,
-          targetSdkVersion: 35,
+module.exports = {
+  expo: {
+    name: 'Latido',
+    slug: 'latido',
+    plugins: [
+      [
+        'expo-build-properties',
+        {
+          android: {
+            // Ya estás en Expo SDK 53 → usa APIs modernas
+            compileSdkVersion: 35,
+            targetSdkVersion: 35,
+            kotlinVersion: '2.0.21',
+            gradleProperties: {
+              'android.useAndroidX': 'true',
+              'android.enableJetifier': 'true',
+            },
+          },
         },
-      },
+      ],
+      withExcludeSupportLibs,
     ],
-  ],
-});
+  },
+};
