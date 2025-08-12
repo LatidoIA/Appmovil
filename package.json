@@ -41,7 +41,6 @@
     "d3-shape": "^3.2.0",
     "@react-native-picker/picker": "2.11.1",
     "@react-native-voice/voice": "3.2.4",
-    "react-native-immediate-phone-call": "1.0.0",
 
     "@react-native-async-storage/async-storage": "2.1.2",
     "expo-health-connect": "^0.1.0",
@@ -65,4 +64,3 @@
   },
   "private": true
 }
-
