@@ -6,7 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import CustomText from './CustomText';
 import theme from './theme';
-import { useEmergency } from './hooks/useEmergency';
+import { useEmergency } from './useEmergency';
 
 const SETTINGS_KEY = '@latido_settings';
 
@@ -20,8 +20,8 @@ export default function SettingsScreen() {
     phoneNumber: null,
     whatsappNumber: null,
     whatsappText: 'Prueba de emergencia desde Configuración',
-    alertSound: require('./assets/sounds/alert.wav'),
-    tickSound: require('./assets/sounds/tick.wav'),
+    alertSound: require('./alert.wav'),
+    tickSound: require('./tick.wav'),
     testMode: true // fuerza modo simulado en este botón
   });
 
@@ -235,4 +235,5 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontFamily: theme.typography.body.fontFamily },
   btnTextAlt: { color: theme.colors.textPrimary, fontFamily: theme.typTypography?.body?.fontFamily || theme.typography.body.fontFamily }
 });
+
 
