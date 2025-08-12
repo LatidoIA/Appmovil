@@ -6,7 +6,7 @@ const articles = [
   {
     id: '1',
     title: 'Cómo el Estrés Impacta tu Frecuencia Cardíaca',
-    image: require('./assets/stress.png'),
+    image: require('./stress.png'),
     excerpt: 'El estrés activa la respuesta de "lucha o huida" y libera hormonas que aumentan tu ritmo cardíaco.',
     content: `El estrés activa la respuesta de "lucha o huida" y libera hormonas como el cortisol y la adrenalina, haciendo que tu corazón lata más rápido. Este mecanismo evolutivo te prepara para enfrentar peligros inmediatos, pero en la vida moderna el estrés constante puede llevar a un ritmo cardíaco elevado de forma prolongada, aumentando el riesgo de hipertensión y enfermedades cardiovasculares.
 
@@ -15,7 +15,7 @@ Monitorear tu frecuencia cardíaca en situaciones de estrés te ayuda a identifi
   {
     id: '2',
     title: 'Importancia del Peso Corporal para la Salud Cardiaca',
-    image: require('./assets/weight.png'),
+    image: require('./weight.png'),
     excerpt: 'El exceso de peso puede incrementar la carga sobre tu corazón y elevar la presión arterial.',
     content: `Mantener un peso saludable es clave para reducir la carga de trabajo del corazón. El exceso de grasa corporal requiere que el corazón bombee más sangre para abastecer tejidos adicionales, lo que puede elevar la presión arterial y aumentar el riesgo de insuficiencia cardíaca.
 
@@ -24,7 +24,7 @@ Adoptar hábitos de alimentación equilibrada y actividad física regular ayuda 
   {
     id: '3',
     title: 'Zonas de Frecuencia Cardíaca para Optimizar tu Entrenamiento',
-    image: require('./assets/zones.png'),
+    image: require('./zones.png'),
     excerpt: 'Entrenar en zonas específicas favorece diferentes beneficios: quema de grasa y mejora aeróbica.',
     content: `Existen varias zonas de entrenamiento basadas en tu frecuencia cardíaca máxima (FCM):
 
@@ -39,7 +39,7 @@ Monitorea tu frecuencia cardíaca durante tus sesiones para mantenerte en la zon
   {
     id: '4',
     title: 'Prevención del Sobreentrenamiento: Señales y Consejos',
-    image: require('./assets/overtrain.png'),
+    image: require('./overtrain.png'),
     excerpt: 'El sobreentrenamiento puede llevar a fatiga crónica y alteraciones del ritmo cardíaco.',
     content: `El sobreentrenamiento ocurre cuando no das tiempo suficiente para recuperarte entre sesiones. Los signos incluyen fatiga persistente, insomnio, irritabilidad y frecuencia cardíaca en reposo elevada.
 
@@ -126,3 +126,4 @@ const styles = StyleSheet.create({
   detailTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 8, color: '#333' },
   detailContent: { fontSize: 16, color: '#555', lineHeight: 24 },
 });
+
