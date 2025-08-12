@@ -4,7 +4,7 @@
     "slug": "latido",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./icon.png",
+    "icon": "./adaptive-icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./splash-icon.png",
