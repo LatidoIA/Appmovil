@@ -23,7 +23,7 @@ import ProfileScreen from './ProfileScreen';
 import StreakScreen from './StreakScreen';
 import SettingsScreen from './SettingsScreen';
 import MedicationsScreen from './MedicationsScreen';
-import { useEmergency } from './hooks/useEmergency';
+import { useEmergency } from './useEmergency';
 import CustomText from './CustomText';
 import theme from './theme';
 
