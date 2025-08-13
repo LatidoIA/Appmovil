@@ -1,0 +1,19 @@
+name: EAS Android (devclient)
+on:
+  workflow_dispatch: {}
+
+jobs:
+  android-devclient:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Instala la CLI de EAS de forma sencilla
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EAS_TOKEN }}
+
+      # Build de desarrollo para usar con Orbit (sin keystore)
+      - name: Build Android devclient
+        run: eas build --platform android --profile devclient --non-interactive
