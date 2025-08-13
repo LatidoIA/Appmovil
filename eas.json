@@ -1,15 +1,8 @@
 {
-  "cli": {
-    "appVersionSource": "remote"
-  },
+  "cli": { "version": ">= 13.0.0" },
   "build": {
     "production": {
-      "android": {
-        "buildType": "apk"
-      },
-      "env": {
-        "NODE_ENV": "production"
-      }
+      "android": { "credentialsSource": "remote" }
     }
   }
 }
