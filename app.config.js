@@ -1,74 +1,52 @@
 // app.config.js
-const { withAppBuildGradle } = require('@expo/config-plugins');
-const appJson = require('./app.json');
+export default () => {
+  // Expo/EAS setea esta var en los builds: "dev", "production", etc.
+  const profile = process.env.EAS_BUILD_PROFILE || 'production';
+  const isDev = profile === 'dev';
 
-// Quita libs antiguas "com.android.support" que chocan con AndroidX
-const withStripSupportLibs = (config) =>
-  withAppBuildGradle(config, (cfg) => {
-    let s = cfg.modResults.contents;
-    if (!/configurations\.all\s*{/.test(s)) {
-      s = s.replace(
-        /(^|\n)dependencies\s*{/,
-        `$1configurations.all {
-  exclude group: 'com.android.support', module: 'support-compat'
-  exclude group: 'com.android.support', module: 'animated-vector-drawable'
-  exclude group: 'com.android.support', module: 'support-vector-drawable'
-  exclude group: 'com.android.support', module: 'versionedparcelable'
-  exclude group: 'com.android.support'
-}
-
-dependencies {`
-      );
-    }
-    cfg.modResults.contents = s;
-    return cfg;
-  });
-
-module.exports = () => {
-  const base = (appJson && appJson.expo) || {};
   return {
-    expo: {
-      // Tomamos lo que tengas en app.json y sobreescribimos lo necesario
-      ...base,
+    name: 'Latido',
+    slug: 'latido',
+    version: '1.0.0',
+    sdkVersion: '53.0.0',
 
-      name: 'Latido',
-      slug: 'latido',
+    // Paquetes distintos para que el dev client conviva con la release
+    android: {
+      package: isDev ? 'com.latido.app.dev' : 'com.latido.app'
+    },
 
-      android: {
-        ...(base.android || {}),
-        package: 'com.latido.app',
-      },
+    extra: {
+      eas: {
+        // TU projectId real (el que te mostró EAS): no lo cambies
+        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f'
+      }
+    },
 
-      extra: {
-        ...(base.extra || {}),
-        eas: {
-          ...(base.extra?.eas || {}),
-          projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f', // tu Project ID real
-        },
-      },
+    plugins: [
+      // Necesario para Orbit / Development Build
+      'expo-dev-client',
 
-      plugins: [
-        [
-          'expo-build-properties',
-          {
-            android: {
-              compileSdkVersion: 35,
-              targetSdkVersion: 35,
-              minSdkVersion: 26, // 🔧 arregla el error de minSdk (Health Connect)
-              kotlinVersion: '2.0.21',
-              gradleProperties: {
-                'android.useAndroidX': 'true',
-                'android.enableJetifier': 'true',
-              },
-            },
-          },
-        ],
-        withStripSupportLibs, // 🔧 evita clases duplicadas de support libs
+      // Propiedades de build (forzamos minSdk 26 por Health Connect)
+      [
+        'expo-build-properties',
+        {
+          android: {
+            compileSdkVersion: 35,
+            targetSdkVersion: 35,
+            minSdkVersion: 26,
+            kotlinVersion: '2.0.21',
+            gradleProperties: {
+              'android.useAndroidX': 'true',
+              'android.enableJetifier': 'true'
+            }
+          }
+        }
       ],
 
-      version: '1.0.0',
-      sdkVersion: '53.0.0',
-      platforms: ['ios', 'android'],
-    },
+      // Si ya tienes este plugin custom en tu repo, lo mantenemos
+      'withStripSupportLibs'
+    ],
+
+    platforms: ['ios', 'android']
   };
 };
