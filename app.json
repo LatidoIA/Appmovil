@@ -5,17 +5,16 @@
     "version": "1.0.0",
     "sdkVersion": "53.0.0",
     "android": {
-      "package": "com.latido.app",
-      "minSdkVersion": 26
+      "package": "com.latido.app"
     },
     "plugins": [
       [
         "expo-build-properties",
         {
           "android": {
-            "minSdkVersion": 26,
             "compileSdkVersion": 35,
             "targetSdkVersion": 35,
+            "minSdkVersion": 26,
             "kotlinVersion": "2.0.21",
             "gradleProperties": {
               "android.useAndroidX": "true",
@@ -23,12 +22,14 @@
             }
           }
         }
-      ]
+      ],
+      "withStripSupportLibs"
     ],
     "extra": {
       "eas": {
         "projectId": "2ac93018-3731-4e46-b345-6d54a5502b8f"
       }
-    }
+    },
+    "platforms": ["ios", "android"]
   }
 }
