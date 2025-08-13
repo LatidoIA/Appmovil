@@ -44,9 +44,7 @@
 
     "@react-native-async-storage/async-storage": "2.1.2",
     "expo-health-connect": "^0.1.0",
-    "react-native-health-connect": "^3.3.3",
-
-    "expo-dev-client": "~5.0.3"
+    "react-native-health-connect": "^3.3.3"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
@@ -64,6 +62,5 @@
       }
     }
   },
-  "private": true"
+  "private": true
 }
-
