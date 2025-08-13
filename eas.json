@@ -1,20 +1,36 @@
 {
   "cli": {
-    "version": ">= 10.0.0"
+    "version": ">= 13.0.0"
   },
   "build": {
     "devclient": {
       "developmentClient": true,
       "distribution": "internal",
-      "android": { "buildType": "apk" },
-      "channel": "development"
+      "android": {
+        "buildType": "apk",
+        "image": "latest"
+      },
+      "env": {
+        "NODE_ENV": "development"
+      }
     },
     "production": {
-      "android": { "buildType": "app-bundle" }
+      "workflow": "managed",
+      "distribution": "store",
+      "android": {
+        "buildType": "app-bundle",
+        "image": "latest"
+      },
+      "env": {
+        "NODE_ENV": "production"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": {
+        "strategy": "slowlane"
+      }
+    }
   }
 }
-
