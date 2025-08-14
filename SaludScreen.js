@@ -13,20 +13,11 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-// ⬇️ REEMPLAZO: quitamos react-native-samsung-health
-// import SamsungHealth from 'react-native-samsung-health';
+// import SamsungHealth from 'react-native-samsung-health'; // (retirado)
 import { LatidoPower } from './LatidoPower';
 import CustomText from './CustomText';
 import CuidadorScreen from './CuidadorScreen';
 import theme from './theme';
-
-// ⬇️ Health Connect helpers (MVP: HR y Steps)
-import {
-  hcEnsureAvailable,
-  hcInitAndRequest,
-  hcReadLatestHeartRate,
-  hcReadStepsToday
-} from './src/health';
 
 const PROFILE_KEY = '@latido_profile';
 const MEDS_KEY = '@latido_meds';
@@ -87,7 +78,7 @@ function secondsUntilNextFromStart(startHHMM, intervalHours) {
 
   if (now.getTime() <= startToday.getTime()) {
     return Math.ceil((startToday.getTime() - now.getTime()) / 1000);
-    }
+  }
   const passed = now.getTime() - startToday.getTime();
   const k = Math.ceil(passed / stepMs);
   const next = startToday.getTime() + k * stepMs;
@@ -124,12 +115,13 @@ export default function SaludScreen() {
   const [power, setPower] = useState({ score: 0, color: theme.colors.primary });
 
   // Próximo ítem de Farmacia
-  const [nextInfo, setNextInfo] = useState(null); // { item, nextAt: Date, isPaused: boolean }
-  const [nowTick, setNowTick] = useState(Date.now()); // para refrescar cuenta regresiva
+  const [nextInfo, setNextInfo] = useState(null);
+  const [nowTick, setNowTick] = useState(Date.now());
   const etaTimerRef = useRef(null);
 
   // Estado interno para Health Connect
   const hcReadyRef = useRef(false);
+  const hcModRef = useRef(null); // guardará el módulo importado dinámicamente
 
   // Cargar perfil
   useEffect(() => {
@@ -151,11 +143,9 @@ export default function SaludScreen() {
 
       const all = arr.map(ensureSchedule);
 
-      // 1) Prefiere los ACTIVOS (reminderOn === true). Si no hay, toma cualquiera (pausado).
       const active = all.filter(x => !!x.reminderOn);
       const candidates = active.length ? active : all;
 
-      // 2) Calcula la próxima fecha
       const withNext = candidates
         .map(x => ({ x, nextAt: nextOccurrenceForItem(x) }))
         .filter(y => !!y.nextAt)
@@ -183,15 +173,6 @@ export default function SaludScreen() {
     return () => { etaTimerRef.current && clearInterval(etaTimerRef.current); };
   }, []);
 
-  // Recalcular cuando pase la hora objetivo
-  useEffect(() => {
-    if (!nextInfo?.nextAt) return;
-    if (Date.now() - nextInfo.nextAt.getTime() >= 0) {
-      // ya alcanzó; recomputar por si hay nuevo siguiente
-      recomputeNext();
-    }
-  }, [nowTick]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Permisos Android adicionales (opcionales para sensores/actividad)
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -200,17 +181,29 @@ export default function SaludScreen() {
     }
   }, []);
 
+  /** Importa HealthConnect de forma PEREZOSA para evitar ejecución nativa en arranque */
+  async function ensureHCModule() {
+    if (hcModRef.current) return hcModRef.current;
+    try {
+      const mod = await import('./src/health');
+      hcModRef.current = mod;
+      return mod;
+    } catch (e) {
+      console.debug('HC import error:', e?.message || e);
+      return null;
+    }
+  }
+
   // Fetch métricas cada 15s usando Health Connect (HR + Steps)
   useEffect(() => {
     let interval;
     async function ensureHC() {
       if (hcReadyRef.current) return true;
-      const available = await hcEnsureAvailable();
-      if (!available) {
-        // No forzamos Alert para no interrumpir; se mostrará con valores '—'
-        return false;
-      }
-      const granted = await hcInitAndRequest();
+      const hc = await ensureHCModule();
+      if (!hc) return false;
+      const available = await hc.hcEnsureAvailable();
+      if (!available) return false;
+      const granted = await hc.hcInitAndRequest();
       if (!granted?.length) return false;
       hcReadyRef.current = true;
       return true;
@@ -219,31 +212,28 @@ export default function SaludScreen() {
     async function fetchMetrics() {
       if (!patient.id) return;
 
-      const ready = await ensureHC();
       let newMetrics = {};
       try {
-        // HR
-        let hrVal = null;
+        const ready = await ensureHC();
         if (ready) {
-          const last = await hcReadLatestHeartRate();
-          hrVal = last?.samples?.[0]?.beatsPerMinute ?? null;
-        }
-        // Steps
-        let stepsVal = null;
-        if (ready) {
-          const stp = await hcReadStepsToday();
-          stepsVal = stp?.total ?? null;
-        }
+          const hc = await ensureHCModule();
+          // HR
+          const last = await hc.hcReadLatestHeartRate();
+          const hrVal = last?.samples?.[0]?.beatsPerMinute ?? null;
+          // Steps
+          const stp = await hc.hcReadStepsToday();
+          const stepsVal = stp?.total ?? null;
 
-        // MVP: Sleep/SpO2 quedan para PR siguiente
-        newMetrics = {
-          heart_rate: hrVal,
-          steps: stepsVal,
-          sleep: null,
-          spo2: null
-        };
+          newMetrics = {
+            heart_rate: hrVal,
+            steps: stepsVal,
+            sleep: null,
+            spo2: null
+          };
+        } else {
+          newMetrics = {};
+        }
       } catch {
-        // si algo falla, dejamos métricas vacías
         newMetrics = {};
       }
 
@@ -271,17 +261,12 @@ export default function SaludScreen() {
     ['SpO₂',                metrics.spo2       ? `${metrics.spo2} %` : '—']
   ];
 
-  // --------- UI Próximo medicamento/suplemento ----------
   const renderNextPharma = () => {
     const goFarmacia = () => navigation.navigate('Cuidado', { initialTab: 'Farmacia' });
 
     return (
       <TouchableOpacity style={styles.nextMedContainer} onPress={goFarmacia} activeOpacity={0.8}>
-        <Ionicons
-          name="medkit-outline"
-          size={24}
-          color={theme.colors.textPrimary}
-        />
+        <Ionicons name="medkit-outline" size={24} color={theme.colors.textPrimary} />
         <View style={styles.nextMedInfo}>
           <CustomText style={styles.nextMedLabel}>Próximo medicamento/suplemento</CustomText>
 
