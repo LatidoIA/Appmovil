@@ -1,3 +1,4 @@
+// eas.json
 {
   "cli": { "appVersionSource": "remote" },
   "build": {
@@ -5,7 +6,7 @@
       "env": { "NODE_ENV": "production" },
       "android": {
         "buildType": "apk",
-        "credentialsSource": "local"
+        "credentialsSource": "remote"
       }
     }
   }
