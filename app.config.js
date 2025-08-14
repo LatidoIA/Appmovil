@@ -5,47 +5,37 @@ const {
 } = require('@expo/config-plugins');
 
 /**
- * Excluye todas las libs legacy de com.android.support para evitar mezcla con AndroidX.
- * Se inyecta en el build.gradle del proyecto.
+ * Excluye dependencias legacy "com.android.support" que chocan con AndroidX
+ * (evita el error de manifest merger por appComponentFactory).
  */
-const withStripLegacySupportLibs = (config) =>
+const withStripLegacySupport = (config) =>
   withProjectBuildGradle(config, (cfg) => {
-    if (cfg.modResults.language === 'groovy') {
-      const inject = `
-/** ---- Strip legacy support libs injected by config plugin ---- */
+    if (cfg.modResults.language !== 'groovy') return cfg;
+    const marker = '/* ⛳ strip-legacy-support */';
+    if (!cfg.modResults.contents.includes(marker)) {
+      cfg.modResults.contents += `
+${marker}
 subprojects {
   project.configurations.all {
-    exclude group: 'com.android.support', module: 'support-compat'
-    exclude group: 'com.android.support', module: 'support-v4'
-    exclude group: 'com.android.support', module: 'support-core-ui'
-    exclude group: 'com.android.support', module: 'support-core-utils'
-    exclude group: 'com.android.support', module: 'support-media-compat'
-    exclude group: 'com.android.support', module: 'support-fragment'
-    exclude group: 'com.android.support', module: 'animated-vector-drawable'
-    exclude group: 'com.android.support', module: 'support-vector-drawable'
+    // elimina completamente libs legacy de support 28.x
+    exclude group: 'com.android.support'
   }
 }
 `;
-      if (!cfg.modResults.contents.includes('Strip legacy support libs')) {
-        cfg.modResults.contents += `\n${inject}\n`;
-      }
     }
     return cfg;
   });
 
 /**
  * Añade tools:replace="android:appComponentFactory" en <application>
- * y asegura el namespace tools en el manifest.
+ * y asegura xmlns:tools en el Manifest.
  */
-const withAppComponentFactoryReplace = (config) =>
+const withReplaceAppComponentFactory = (config) =>
   withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
-    // Asegura xmlns:tools
     manifest.$ = manifest.$ || {};
     manifest.$['xmlns:tools'] =
       manifest.$['xmlns:tools'] || 'http://schemas.android.com/tools';
-
-    // Aplica tools:replace en <application>
     const app = manifest.application?.[0];
     if (app) {
       app.$ = app.$ || {};
@@ -61,15 +51,15 @@ const withAppComponentFactoryReplace = (config) =>
 
 module.exports = () => ({
   expo: {
+    // === tomado de tu app.json ===
     name: 'Latido',
     slug: 'latido',
     version: '1.0.0',
     sdkVersion: '53.0.0',
-    platforms: ['android', 'ios'],
-
+    platforms: ['ios', 'android'],
     android: {
       package: 'com.latido.app',
-      // Permisos que ya estabas usando
+      // permisos que usa tu app
       permissions: [
         'android.permission.BLUETOOTH',
         'android.permission.BLUETOOTH_ADMIN',
@@ -81,7 +71,13 @@ module.exports = () => ({
         'android.permission.POST_NOTIFICATIONS',
       ],
     },
+    extra: {
+      eas: {
+        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f',
+      },
+    },
 
+    // === plugins (build props + health + fixes) ===
     plugins: [
       [
         'expo-build-properties',
@@ -98,16 +94,12 @@ module.exports = () => ({
           },
         },
       ],
+      // configura Health Connect a nivel nativo
       'expo-health-connect',
-      // Plugins locales (los definimos arriba):
-      withStripLegacySupportLibs,
-      withAppComponentFactoryReplace,
+      // parches para el merge de manifests y support libs
+      withStripLegacySupport,
+      withReplaceAppComponentFactory,
     ],
-
-    extra: {
-      eas: {
-        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f', // deja tu ID real
-      },
-    },
   },
 });
+
