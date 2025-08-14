@@ -1,6 +1,6 @@
 // AlarmasScreen.js
 import React, { useState, useEffect, useCallback } from 'react';
-import { ScrollView, View, Text, Switch, StyleSheet, Alert } from 'react-native';
+import { ScrollView, View, Text, Switch, StyleSheet, Alert, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 
@@ -13,15 +13,28 @@ export default function AlarmasScreen() {
   const [medsReminderEnabled, setMedsReminderEnabled] = useState(false);
   const [meds, setMeds]                         = useState([]);
 
+  // Asegura permisos antes de programar (suave, sin romper)
+  useEffect(() => {
+    (async () => {
+      try {
+        if (Platform.OS === 'ios') {
+          await Notifications.requestPermissionsAsync();
+        } else {
+          // En Android basta con el canal que ya se crea en App.js; no es obligatorio pedir permiso.
+        }
+      } catch {}
+    })();
+  }, []);
+
   // 1. Carga inicial de ajustes y lista de medicamentos
   useEffect(() => {
     (async () => {
       const rawR = await AsyncStorage.getItem(REMINDERS_KEY);
       if (rawR) {
         const { hydration, movement, meds: medsReminder } = JSON.parse(rawR);
-        setHydrationEnabled(hydration);
-        setMovementEnabled(movement);
-        setMedsReminderEnabled(medsReminder);
+        setHydrationEnabled(!!hydration);
+        setMovementEnabled(!!movement);
+        setMedsReminderEnabled(!!medsReminder);
       }
       const rawM = await AsyncStorage.getItem(MEDS_KEY);
       if (rawM) setMeds(JSON.parse(rawM));
@@ -42,29 +55,32 @@ export default function AlarmasScreen() {
 
   // 3. Helper para programar/cancelar recordatorios
   const scheduleReminder = useCallback(async (key, enabled, { content, trigger }) => {
-    // Cancela previos con ese prefijo
-    const all = await Notifications.getAllScheduledNotificationsAsync();
-    for (let n of all) {
-      if (n.identifier.startsWith(key)) {
-        await Notifications.cancelScheduledNotificationAsync(n.identifier);
-      }
-    }
-    if (!enabled) return;
     try {
+      const all = await Notifications.getAllScheduledNotificationsAsync();
+      for (let n of all) {
+        if (n.identifier?.startsWith?.(key)) {
+          await Notifications.cancelScheduledNotificationAsync(n.identifier);
+        }
+      }
+      if (!enabled) return;
+
       await Notifications.scheduleNotificationAsync({ content, trigger });
-    } catch {
+    } catch (e) {
       Alert.alert('Error', 'No se pudo programar la alarma');
+      console.debug('scheduleReminder error:', e?.message || e);
     }
   }, []);
 
   // 4. Hidratación cada hora
   useEffect(() => {
+    // Programación simple: próxima hora y repetir
+    const hour = new Date().getHours();
     scheduleReminder(
       'hydration',
       hydrationEnabled,
       {
         content: { title: '🌊 Hidratación', body: 'Toma un vaso de agua.' },
-        trigger: { hour: new Date().getHours() + 1, minute: 0, repeats: true }
+        trigger: { hour: (hour + 1) % 24, minute: 0, repeats: true }
       }
     );
     saveSettings();
@@ -72,12 +88,13 @@ export default function AlarmasScreen() {
 
   // 5. Movimiento cada 2 horas
   useEffect(() => {
+    const hour = new Date().getHours();
     scheduleReminder(
       'movement',
       movementEnabled,
       {
         content: { title: '🚶 Movimiento', body: 'Muévete un poco.' },
-        trigger: { hour: new Date().getHours() + 2, minute: 0, repeats: true }
+        trigger: { hour: (hour + 2) % 24, minute: 0, repeats: true }
       }
     );
     saveSettings();
@@ -92,7 +109,7 @@ export default function AlarmasScreen() {
         {
           content: {
             title: '💊 Medicamento',
-            body: `Es hora de tomar ${m.medName} — ${m.dosage}`
+            body: `Es hora de tomar ${m.medName} — ${m.dosage || ''}`.trim()
           },
           trigger: { hour: 9, minute: 0, repeats: true }
         }
@@ -128,14 +145,14 @@ export default function AlarmasScreen() {
       ) : (
         meds.map(m => (
           <View key={m.id} style={styles.medRow}>
-            <Text style={styles.medText}>{m.medName} — {m.dosage}</Text>
+            <Text style={styles.medText}>{m.medName} — {m.dosage || '—'}</Text>
           </View>
         ))
       )}
 
       <Text style={styles.note}>
-        Hidratación: cada hora ↻  
-        Movimiento: cada 2 horas ↻  
+        Hidratación: cada hora ↻{'\n'}
+        Movimiento: cada 2 horas ↻{'\n'}
         Medicamentos: 9 AM diaria ↻
       </Text>
     </ScrollView>
