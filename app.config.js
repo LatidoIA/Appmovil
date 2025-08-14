@@ -4,10 +4,7 @@ const {
   withAndroidManifest,
 } = require('@expo/config-plugins');
 
-/**
- * Excluye dependencias legacy "com.android.support" que chocan con AndroidX
- * (evita el error de manifest merger por appComponentFactory).
- */
+// 1) Excluye libs legacy com.android.support (evita choques con AndroidX)
 const withStripLegacySupport = (config) =>
   withProjectBuildGradle(config, (cfg) => {
     if (cfg.modResults.language !== 'groovy') return cfg;
@@ -26,19 +23,22 @@ subprojects {
     return cfg;
   });
 
-/**
- * Añade tools:replace="android:appComponentFactory" en <application>
- * y asegura xmlns:tools en el Manifest.
- */
-const withReplaceAppComponentFactory = (config) =>
+// 2) Fija appComponentFactory y añade tools:replace
+const withFixAppComponentFactory = (config) =>
   withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
     manifest.$ = manifest.$ || {};
+    // asegura el namespace tools
     manifest.$['xmlns:tools'] =
       manifest.$['xmlns:tools'] || 'http://schemas.android.com/tools';
+
     const app = manifest.application?.[0];
     if (app) {
       app.$ = app.$ || {};
+      // establece el NUEVO valor requerido por el merger
+      app.$['android:appComponentFactory'] = 'androidx.core.app.CoreComponentFactory';
+
+      // y declara que lo reemplaza
       const curr = app.$['tools:replace'] || '';
       if (!curr.includes('android:appComponentFactory')) {
         app.$['tools:replace'] = curr
@@ -51,15 +51,14 @@ const withReplaceAppComponentFactory = (config) =>
 
 module.exports = () => ({
   expo: {
-    // === tomado de tu app.json ===
     name: 'Latido',
     slug: 'latido',
     version: '1.0.0',
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
+
     android: {
       package: 'com.latido.app',
-      // permisos que usa tu app
       permissions: [
         'android.permission.BLUETOOTH',
         'android.permission.BLUETOOTH_ADMIN',
@@ -71,13 +70,7 @@ module.exports = () => ({
         'android.permission.POST_NOTIFICATIONS',
       ],
     },
-    extra: {
-      eas: {
-        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f',
-      },
-    },
 
-    // === plugins (build props + health + fixes) ===
     plugins: [
       [
         'expo-build-properties',
@@ -94,12 +87,16 @@ module.exports = () => ({
           },
         },
       ],
-      // configura Health Connect a nivel nativo
       'expo-health-connect',
-      // parches para el merge de manifests y support libs
       withStripLegacySupport,
-      withReplaceAppComponentFactory,
+      withFixAppComponentFactory,
     ],
+
+    extra: {
+      eas: {
+        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f',
+      },
+    },
   },
 });
 
