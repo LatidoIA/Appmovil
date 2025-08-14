@@ -17,38 +17,23 @@ import * as Notifications from 'expo-notifications';
 import CustomText from './CustomText';
 import theme from './theme';
 
-// 👉 Enchufa tu crash logger lo MÁS temprano posible
+// (opcional) crash logger temprano; no debe romper el arranque
 try {
-  // si tu archivo exporta side-effects, con importar basta;
-  // si exporta una función install(), también la intentamos llamar.
   const crash = require('./crash');
   crash?.install?.();
-} catch (e) {
-  // no rompas el arranque si falla
-}
+} catch {}
 
-// --- Ignorar warnings conocidos ---
+// Ignorar warnings conocidos
 LogBox.ignoreLogs([
   '[expo-av]: Expo AV has been deprecated',
   '`expo-notifications` functionality is not fully supported in Expo Go',
   'Cannot read property \'startSpeech\' of null'
 ]);
 
-// Splash manual
+// Control manual del splash
 try {
   SplashScreen.preventAutoHideAsync();
-} catch (e) {
-  console.debug('Splash prevent error:', e?.message || e);
-}
-
-// Notificaciones: mostrar alerta en foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false
-  })
-});
+} catch {}
 
 const SETTINGS_KEY = '@latido_settings';
 // Streak keys
@@ -73,18 +58,15 @@ function daysBetweenUTC(aStr, bStr) {
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
-/**
- * Util para diferir la EJECUCIÓN de módulos “pesados”.
- * Metro incluirá el código en el bundle, pero el módulo no se evalúa
- * hasta que montamos el screen por primera vez.
- */
+/** Carga diferida de screens para que libs nativas no se ejecuten en el arranque */
 function lazyScreen(loader) {
   return function Lazy(props) {
     const [C, setC] = React.useState(null);
     useEffect(() => {
       let alive = true;
-      loader().then(m => { if (alive) setC(() => m.default || m); })
-              .catch(e => console.debug('Lazy load error:', e?.message || e));
+      loader()
+        .then(m => { if (alive) setC(() => m.default || m); })
+        .catch(e => console.debug('Lazy load error:', e?.message || e));
       return () => { alive = false; };
     }, []);
     if (!C) return null;
@@ -92,8 +74,6 @@ function lazyScreen(loader) {
   };
 }
 
-// ⚠️ Dejamos de importar screens arriba.
-//    Ahora los cargamos perezosamente para evitar que libs nativas se inicialicen en el arranque.
 const SaludScreenLazy           = lazyScreen(() => import('./SaludScreen'));
 const LatidoScreenLazy          = lazyScreen(() => import('./LatidoScreen'));
 const HistoryScreenLazy         = lazyScreen(() => import('./HistoryScreen'));
@@ -103,9 +83,38 @@ const StreakScreenLazy          = lazyScreen(() => import('./StreakScreen'));
 const SettingsScreenLazy        = lazyScreen(() => import('./SettingsScreen'));
 const MedicationsScreenLazy     = lazyScreen(() => import('./MedicationsScreen'));
 
-// 👇 OJO: el hook useEmergency importaba módulos nativos al cargar el archivo.
-//     Lo vamos a seguir usando, pero su archivo será “safe” (ver cambio en useEmergency.js).
 import { useEmergency } from './useEmergency';
+
+/** Inicialización diferida de notificaciones (después del primer render estable) */
+async function setupNotificationsDeferred() {
+  try {
+    // Handler para mostrar alertas en foreground
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false
+      })
+    });
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('alarms', {
+        name: 'Alarmas',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C'
+      });
+    } else {
+      // iOS: pedir permisos de manera educada (no al milisegundo 0 de la app)
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        console.debug('Notifs: permiso iOS no concedido');
+      }
+    }
+  } catch (e) {
+    console.debug('setupNotifications error:', e?.message || e);
+  }
+}
 
 function MainTabs() {
   const navigation = useNavigation();
@@ -117,7 +126,7 @@ function MainTabs() {
   useEffect(() => {
     AsyncStorage.getItem('@latido_profile')
       .then(raw => { if (raw) setProfile(JSON.parse(raw)); })
-      .catch(e => console.debug('Load profile error:', e?.message || e));
+      .catch(() => {});
   }, []);
 
   // cargar racha
@@ -125,9 +134,7 @@ function MainTabs() {
     try {
       const cnt = await AsyncStorage.getItem(STREAK_CNT);
       setStreakCount(parseInt(cnt || '0', 10) || 0);
-    } catch (e) {
-      console.debug('Load streak badge error:', e?.message || e);
-    }
+    } catch (e) { console.debug('Load streak badge error:', e?.message || e); }
   }, []);
 
   // cargar settings (para testMode)
@@ -163,7 +170,6 @@ function MainTabs() {
 
   return (
     <Tab.Navigator
-      // evita montar tabs hasta que el usuario entra (menos nativo ejecutándose)
       screenOptions={({ route, navigation }) => ({
         headerShown: true,
         headerTitle: '',
@@ -171,7 +177,6 @@ function MainTabs() {
         headerTintColor: theme.colors.textPrimary,
         headerRight: () => (
           <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: theme.spacing.md }}>
-            {/* Botón Streak con badge */}
             <View style={{ position: 'relative', marginHorizontal: theme.spacing.sm }}>
               <TouchableOpacity onPress={() => navigation.navigate('Streak')}>
                 <Ionicons name="flame" size={24} color={theme.colors.accent} />
@@ -244,72 +249,14 @@ export default function App() {
 
   useEffect(() => {
     if (fontsLoaded) {
-      SplashScreen.hideAsync().catch(e => console.debug('Splash hide error:', e?.message || e));
+      SplashScreen.hideAsync().catch(() => {});
+      // Inicializa notificaciones **después** del primer render estable
+      const t = setTimeout(() => { setupNotificationsDeferred(); }, 1200);
+      return () => clearTimeout(t);
     }
   }, [fontsLoaded]);
 
-  // Configuración de notificaciones
-  useEffect(() => {
-    let responseSub;
-    (async () => {
-      try {
-        if (Platform.OS === 'ios') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          if (status !== 'granted') console.debug('Notifs: permiso iOS no concedido');
-        }
-        if (Platform.OS === 'android') {
-          await Notifications.setNotificationChannelAsync('alarms', {
-            name: 'Alarmas',
-            importance: Notifications.AndroidImportance.HIGH,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: '#FF231F7C',
-            sound: undefined
-          });
-        }
-      } catch (e) {
-        console.debug('Config notifs error:', e?.message || e);
-      }
-
-      try {
-        responseSub = Notifications.addNotificationResponseReceivedListener(async (resp) => {
-          try {
-            const data = resp?.notification?.request?.content?.data || {};
-            if (data?.type === 'alarm') {
-              const raw = await AsyncStorage.getItem(SETTINGS_KEY);
-              const cfg = raw ? JSON.parse(raw) : {};
-              const url = cfg?.alarmWebhook;
-              if (url) {
-                try {
-                  await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      type: 'alarm',
-                      tappedAt: new Date().toISOString(),
-                      platform: Platform.OS,
-                      payload: data?.payload || null
-                    })
-                  });
-                } catch (e) {
-                  console.debug('Webhook POST error:', e?.message || e);
-                }
-              }
-            }
-          } catch (e) {
-            console.debug('Notif response handler error:', e?.message || e);
-          }
-        });
-      } catch (e) {
-        console.debug('Add response listener error:', e?.message || e);
-      }
-    })();
-
-    return () => {
-      try { responseSub?.remove?.(); } catch (e) { console.debug('Remove response listener error:', e?.message || e); }
-    };
-  }, []);
-
-  // Actualiza racha automáticamente al iniciar la app
+  // Auto-actualiza racha al iniciar
   useEffect(() => {
     (async () => {
       const today = dateOnlyStr(new Date());
@@ -358,7 +305,7 @@ export default function App() {
   };
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer theme={navTheme} onReady={() => {/* hook si quisieras inicializar algo aquí */}}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Main"        component={MainTabs} />
         <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
