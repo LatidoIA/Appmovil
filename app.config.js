@@ -4,7 +4,7 @@ const {
   withAndroidManifest,
 } = require('@expo/config-plugins');
 
-// 1) Excluye libs legacy com.android.support (evita choques con AndroidX)
+// Excluir com.android.support (evita choques con AndroidX)
 const withStripLegacySupport = (config) =>
   withProjectBuildGradle(config, (cfg) => {
     if (cfg.modResults.language !== 'groovy') return cfg;
@@ -14,7 +14,6 @@ const withStripLegacySupport = (config) =>
 ${marker}
 subprojects {
   project.configurations.all {
-    // elimina completamente libs legacy de support 28.x
     exclude group: 'com.android.support'
   }
 }
@@ -23,22 +22,18 @@ subprojects {
     return cfg;
   });
 
-// 2) Fija appComponentFactory y añade tools:replace
+// Fijar appComponentFactory y tools:replace
 const withFixAppComponentFactory = (config) =>
   withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
     manifest.$ = manifest.$ || {};
-    // asegura el namespace tools
     manifest.$['xmlns:tools'] =
       manifest.$['xmlns:tools'] || 'http://schemas.android.com/tools';
 
     const app = manifest.application?.[0];
     if (app) {
       app.$ = app.$ || {};
-      // establece el NUEVO valor requerido por el merger
       app.$['android:appComponentFactory'] = 'androidx.core.app.CoreComponentFactory';
-
-      // y declara que lo reemplaza
       const curr = app.$['tools:replace'] || '';
       if (!curr.includes('android:appComponentFactory')) {
         app.$['tools:replace'] = curr
@@ -57,8 +52,15 @@ module.exports = () => ({
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
 
+    // === ICONOS ===
+    icon: './icono.png', // 1024x1024 recomendado
     android: {
       package: 'com.latido.app',
+      // Adaptive icon (Android 8+)
+      adaptiveIcon: {
+        foregroundImage: './icono.png',
+        backgroundColor: '#111111', // cambia si tu paleta usa otro fondo
+      },
       permissions: [
         'android.permission.BLUETOOTH',
         'android.permission.BLUETOOTH_ADMIN',
@@ -99,4 +101,3 @@ module.exports = () => ({
     },
   },
 });
-
