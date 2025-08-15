@@ -1,15 +1,18 @@
 // src/health.ts
-// Implementación con react-native-health-connect (APIs reales) + import perezoso
+// Health Connect via react-native-health-connect (SDK status fix)
 
 type AnyObj = any;
 
-// Permisos mínimos para este MVP
 const PERMS = [
   { accessType: 'read' as const, recordType: 'HeartRate' as const },
   { accessType: 'read' as const, recordType: 'Steps' as const },
 ];
 
-// Carga perezosa para no ejecutar nativo en el arranque de la app
+// SDK status constants from AndroidX Health Connect
+const SDK_UNAVAILABLE = 0;
+const SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED = 1;
+const SDK_AVAILABLE = 2;
+
 async function getHC(): Promise<AnyObj | null> {
   try {
     const mod = await import('react-native-health-connect');
@@ -20,36 +23,50 @@ async function getHC(): Promise<AnyObj | null> {
   }
 }
 
-export async function hcEnsureAvailable() {
+/** Devuelve true si el SDK está disponible o requiere update del proveedor. */
+export async function hcEnsureAvailable(): Promise<boolean> {
   try {
     const HC = await getHC();
     if (!HC) return false;
 
-    // Algunas versiones exponen getSdkStatus, otras solo initialize
     if (HC.getSdkStatus) {
       const status = await HC.getSdkStatus();
+      if (typeof status === 'number') {
+        // Lo consideramos “disponible” si está AVAILABLE (2) o requiere update (1)
+        // En (1) igual podremos abrir el intent de permisos, y el sistema pedirá actualizar.
+        return (
+          status === SDK_AVAILABLE ||
+          status === SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED
+        );
+      }
       const s = String(status).toLowerCase();
-      return s.includes('available') || s.includes('installed');
+      return s.includes('available') || s.includes('update'); // por compatibilidad
     }
 
+    // Fallback: si no expone getSdkStatus, intentamos initialize()
     if (HC.initialize) {
-      const ok = await HC.initialize();
-      return !!ok;
+      await HC.initialize();
+      return true;
     }
-
-    // Si no hay ninguna, intentamos leer un flag cualquiera y si no lanza, lo damos por bueno
     return true;
   } catch {
     return false;
   }
 }
 
+/** Pide permisos en el diálogo nativo de Health Connect. */
 export async function hcInitAndRequest() {
   try {
     const HC = await getHC();
     if (!HC) return [];
 
-    // requestPermission vs requestPermissions según versión
+    // Algunas versiones requieren initialize() antes de pedir permisos
+    if (HC.initialize) {
+      try {
+        await HC.initialize();
+      } catch {}
+    }
+
     if (HC.requestPermission) {
       return await HC.requestPermission(PERMS);
     }
@@ -80,7 +97,6 @@ export async function hcReadLatestHeartRate() {
       pageSize: 1,
     });
 
-    // Normalizamos a un formato compatible con tu uso actual
     const records = (res?.records ?? []) as AnyObj[];
     return records[0] ?? null;
   } catch {
