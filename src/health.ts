@@ -1,5 +1,7 @@
 // src/health.ts
-// Health Connect via react-native-health-connect (SDK status fix)
+// Health Connect via react-native-health-connect (import estático + fix SDK status)
+
+import * as HC from 'react-native-health-connect';
 
 type AnyObj = any;
 
@@ -8,43 +10,22 @@ const PERMS = [
   { accessType: 'read' as const, recordType: 'Steps' as const },
 ];
 
-// SDK status constants from AndroidX Health Connect
+// Constantes típicas del SDK de Health Connect
 const SDK_UNAVAILABLE = 0;
 const SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED = 1;
 const SDK_AVAILABLE = 2;
 
-async function getHC(): Promise<AnyObj | null> {
-  try {
-    const mod = await import('react-native-health-connect');
-    return mod;
-  } catch (e) {
-    console.debug('HC import error:', (e as any)?.message || e);
-    return null;
-  }
-}
-
-/** Devuelve true si el SDK está disponible o requiere update del proveedor. */
 export async function hcEnsureAvailable(): Promise<boolean> {
   try {
-    const HC = await getHC();
-    if (!HC) return false;
-
-    if (HC.getSdkStatus) {
+    if (typeof HC.getSdkStatus === 'function') {
       const status = await HC.getSdkStatus();
       if (typeof status === 'number') {
-        // Lo consideramos “disponible” si está AVAILABLE (2) o requiere update (1)
-        // En (1) igual podremos abrir el intent de permisos, y el sistema pedirá actualizar.
-        return (
-          status === SDK_AVAILABLE ||
-          status === SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED
-        );
+        return status === SDK_AVAILABLE || status === SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED;
       }
       const s = String(status).toLowerCase();
-      return s.includes('available') || s.includes('update'); // por compatibilidad
+      return s.includes('available') || s.includes('update');
     }
-
-    // Fallback: si no expone getSdkStatus, intentamos initialize()
-    if (HC.initialize) {
+    if (typeof HC.initialize === 'function') {
       await HC.initialize();
       return true;
     }
@@ -54,24 +35,16 @@ export async function hcEnsureAvailable(): Promise<boolean> {
   }
 }
 
-/** Pide permisos en el diálogo nativo de Health Connect. */
 export async function hcInitAndRequest() {
   try {
-    const HC = await getHC();
-    if (!HC) return [];
-
-    // Algunas versiones requieren initialize() antes de pedir permisos
-    if (HC.initialize) {
-      try {
-        await HC.initialize();
-      } catch {}
+    if (typeof HC.initialize === 'function') {
+      try { await HC.initialize(); } catch {}
     }
-
-    if (HC.requestPermission) {
-      return await HC.requestPermission(PERMS);
+    if (typeof (HC as AnyObj).requestPermission === 'function') {
+      return await (HC as AnyObj).requestPermission(PERMS);
     }
-    if (HC.requestPermissions) {
-      return await HC.requestPermissions(PERMS);
+    if (typeof (HC as AnyObj).requestPermissions === 'function') {
+      return await (HC as AnyObj).requestPermissions(PERMS);
     }
     return [];
   } catch {
@@ -81,8 +54,7 @@ export async function hcInitAndRequest() {
 
 export async function hcReadLatestHeartRate() {
   try {
-    const HC = await getHC();
-    if (!HC?.readRecords) return null;
+    if (typeof HC.readRecords !== 'function') return null;
 
     const now = new Date();
     const start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -106,8 +78,7 @@ export async function hcReadLatestHeartRate() {
 
 export async function hcReadStepsToday() {
   try {
-    const HC = await getHC();
-    if (!HC?.readRecords) return { total: 0, count: 0 };
+    if (typeof HC.readRecords !== 'function') return { total: 0, count: 0 };
 
     const start = new Date();
     start.setHours(0, 0, 0, 0);
