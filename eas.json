@@ -2,6 +2,10 @@
   "cli": { "appVersionSource": "remote" },
   "build": {
     "production": {
+      "env": {
+        "NODE_ENV": "production",
+        "EXPO_NO_TELEMETRY": "1"
+      },
       "android": {
         "buildType": "apk",
         "credentialsSource": "local"
