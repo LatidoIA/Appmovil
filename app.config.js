@@ -4,43 +4,34 @@ export default {
     name: "LATIDO",
     slug: "latido",
     version: "1.0.0",
-    orientation: "portrait",
-    icon: "./icono.png",
-    scheme: "latido",
-    userInterfaceStyle: "automatic",
-    splash: {
-      image: "./assets/splash.png",
-      resizeMode: "contain",
-      backgroundColor: "#000000"
-    },
+    icon: "./icono.png",              // ya lo subiste en la raíz
     android: {
       package: "com.latido.app",
-      versionCode: 3, // súbelo en cada build
+      versionCode: 4,                 // súbelo en cada build
       adaptiveIcon: {
-        foregroundImage: "./assets/adaptive-icon.png",
+        foregroundImage: "./icono.png",
         backgroundColor: "#000000"
       },
-      // ⬇️ CLAVE: permisos de Health Connect
+      minSdkVersion: 26,
+      targetSdkVersion: 35,
+      // Permisos Health Connect (lectura)
       permissions: [
         "android.permission.health.READ_STEPS",
         "android.permission.health.READ_HEART_RATE"
-      ],
-      // Requisitos del SDK de Health Connect
-      minSdkVersion: 26,
-      targetSdkVersion: 35
+      ]
     },
     plugins: [
       "expo-health-connect",
       ["expo-build-properties", {
-        android: {
-          compileSdkVersion: 35,
-          targetSdkVersion: 35,
-          minSdkVersion: 26
-        }
+        android: { compileSdkVersion: 35, targetSdkVersion: 35, minSdkVersion: 26 }
       }]
     ],
     extra: {
-      eas: { projectId: "REEMPLAZA_CON_TU_PROJECT_ID" }
-    }
+      eas: { projectId: "2ac93018-3731-4e46-b345-6d54a5502b8f" } // <- el correcto
+    },
+    // Opcional: si no usas iOS, puedes quitar "ios" de aquí
+    platforms: ["android"],
+    sdkVersion: "53.0.0"
   }
 }
+  
