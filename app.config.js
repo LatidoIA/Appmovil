@@ -1,5 +1,5 @@
 // app.config.js
-const withStripSupportLibs = require("./config/plugins/withStripSupportLibs.js");
+const withStripSupportLibs = require("./withStripSupportLibs.js"); // 👈 cambia la ruta
 
 /** @type import('@expo/config').ExpoConfig */
 module.exports = () => ({
@@ -11,7 +11,6 @@ module.exports = () => ({
   userInterfaceStyle: "automatic",
   icon: "./icono.png",
 
-  // Sin imagen de splash para evitar ENOENT
   splash: {
     backgroundColor: "#000000",
     resizeMode: "contain",
@@ -20,24 +19,18 @@ module.exports = () => ({
   android: {
     package: "com.latido.app",
     versionCode: 3,
-    // Usa el mismo icono como foreground del adaptive icon
     adaptiveIcon: {
       foregroundImage: "./icono.png",
       backgroundColor: "#000000",
     },
     minSdkVersion: 26,
     targetSdkVersion: 35,
-    // Deja que el plugin agregue los permisos de Health Connect
-    // permissions: [],
   },
 
   plugins: [
-    withStripSupportLibs, // Plan A (ya lo tienes)
-    [
-      "expo-build-properties",
-      { android: { compileSdkVersion: 35, targetSdkVersion: 35, minSdkVersion: 26 } },
-    ],
-    "expo-health-connect",
+    withStripSupportLibs,                // tu plugin local
+    "expo-health-connect",               // Health Connect
+    ["expo-build-properties", { android: { compileSdkVersion: 35, targetSdkVersion: 35, minSdkVersion: 26 } }],
   ],
 
   extra: {
