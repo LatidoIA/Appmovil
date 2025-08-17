@@ -1,67 +1,53 @@
 // app.config.js
-const { withPlugins, withProjectBuildGradle } = require('@expo/config-plugins');
-
-function withStripSupportLibs(config) {
-  return withProjectBuildGradle(config, (conf) => {
-    const snippet = `
-/** Strip legacy support libs that conflict with AndroidX */
-subprojects {
-  configurations.all {
-    exclude group: 'com.android.support'
-  }
-}
-`;
-    if (!conf.modResults.contents.includes("exclude group: 'com.android.support'")) {
-      conf.modResults.contents += `\n${snippet}\n`;
-    }
-    return conf;
-  });
-}
-
-module.exports = () =>
-  withPlugins(
-    {
-      name: "LATIDO",
-      slug: "latido",
-      version: "1.0.0",
-      orientation: "portrait",
-      icon: "./icono.png",
-      scheme: "latido",
-      userInterfaceStyle: "automatic",
-      splash: { image: "./splash.png", resizeMode: "contain", backgroundColor: "#000000" },
-      android: {
-        package: "com.latido.app",
-        versionCode: 3,
-        adaptiveIcon: { foregroundImage: "./adaptive-icon.png", backgroundColor: "#000000" },
-        permissions: [
-          "android.permission.health.READ_STEPS",
-          "android.permission.health.READ_HEART_RATE"
-        ],
-        minSdkVersion: 26,
-        targetSdkVersion: 35
-      },
-      plugins: [
-        "expo-health-connect",
-        [
-          "expo-build-properties",
-          {
-            android: {
-              compileSdkVersion: 35,
-              targetSdkVersion: 35,
-              minSdkVersion: 26,
-              gradleProperties: {
-                "android.useAndroidX": "true",
-                "android.enableJetifier": "true"
-              }
-            }
-          }
-        ],
-        "withFixAppComponentFactory"
-      ],
-      sdkVersion: "53.0.0",
-      platforms: ["ios", "android"],
-      // <- viene del CI (no queda hardcodeado)
-      extra: { eas: { projectId: process.env.EAS_PROJECT_ID } }
+export default ({ config }) => ({
+  name: "LATIDO",
+  slug: "latido",
+  version: "1.0.0",
+  orientation: "portrait",
+  icon: "./icono.png",
+  scheme: "latido",
+  userInterfaceStyle: "automatic",
+  splash: {
+    image: "./splash.png",
+    resizeMode: "contain",
+    backgroundColor: "#000000"
+  },
+  android: {
+    package: "com.latido.app",
+    versionCode: 3,
+    adaptiveIcon: {
+      foregroundImage: "./adaptive-icon.png",
+      backgroundColor: "#000000"
     },
-    [withStripSupportLibs]
-  );
+    // Si ya te funcionaba sin pedir permisos explícitos, podés borrar esto:
+    permissions: [
+      "android.permission.health.READ_STEPS",
+      "android.permission.health.READ_HEART_RATE"
+    ],
+    minSdkVersion: 26,
+    targetSdkVersion: 35
+  },
+  plugins: [
+    "expo-health-connect",
+    [
+      "expo-build-properties",
+      {
+        android: {
+          compileSdkVersion: 35,
+          targetSdkVersion: 35,
+          minSdkVersion: 26
+          // Dejá esto simple; si agregaste cosas raras acá, quitalas para volver al baseline
+        }
+      }
+    ]
+    // ⚠️ Si agregaste "withFixAppComponentFactory", quitalo para volver a la base estable
+  ],
+  extra: {
+    eas: {
+      // ⚠️ NECESARIO para EAS con token/robot user (no interactivo)
+      projectId: process.env.EAS_PROJECT_ID
+    }
+  },
+  sdkVersion: "53.0.0",
+  platforms: ["ios", "android"]
+});
