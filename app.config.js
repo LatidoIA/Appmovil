@@ -1,7 +1,6 @@
 // app.config.js
 const { withPlugins, withProjectBuildGradle } = require('@expo/config-plugins');
 
-// Quita cualquier dependencia del grupo com.android.support en todos los subproyectos
 function withStripSupportLibs(config) {
   return withProjectBuildGradle(config, (conf) => {
     const snippet = `
@@ -19,7 +18,7 @@ subprojects {
   });
 }
 
-module.exports = ({ config }) =>
+module.exports = () =>
   withPlugins(
     {
       name: "LATIDO",
@@ -50,19 +49,19 @@ module.exports = ({ config }) =>
               compileSdkVersion: 35,
               targetSdkVersion: 35,
               minSdkVersion: 26,
-              // <- IMPORTANTÍSIMO para convertir dependencias heredadas a AndroidX
               gradleProperties: {
                 "android.useAndroidX": "true",
                 "android.enableJetifier": "true"
               }
             }
           }
-        ]
+        ],
+        "withFixAppComponentFactory"
       ],
       sdkVersion: "53.0.0",
       platforms: ["ios", "android"],
-      // Si EAS te lo pidió, asegurate de tener:
-      // extra: { eas: { projectId: "<TU_PROJECT_ID_DE_EAS>" } }
+      // <- viene del CI (no queda hardcodeado)
+      extra: { eas: { projectId: process.env.EAS_PROJECT_ID } }
     },
     [withStripSupportLibs]
   );
