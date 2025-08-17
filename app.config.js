@@ -1,82 +1,49 @@
-// app.config.js (SDK 53)
-const { withPlugins, withProjectBuildGradle } = require("@expo/config-plugins");
+// app.config.js
+const withStripSupportLibs = require("./config/plugins/withStripSupportLibs.js");
 
-// Plugin inline para excluir libs legacy de support (evita conflictos con androidx)
-function withStripSupportLibs(config) {
-  return withProjectBuildGradle(config, (cfg) => {
-    const mod = cfg.modResults;
-    if (mod.language !== "groovy") return cfg;
+/** @type import('@expo/config').ExpoConfig */
+module.exports = () => ({
+  name: "LATIDO",
+  slug: "latido",
+  version: "1.0.0",
+  scheme: "latido",
+  orientation: "portrait",
+  userInterfaceStyle: "automatic",
+  icon: "./icono.png",
 
-    const insertion = `
-configurations.all {
-  exclude group: 'com.android.support'
-  exclude group: 'com.android.support', module: 'support-compat'
-  exclude group: 'com.android.support', module: 'support-v4'
-  exclude group: 'com.android.support', module: 'support-media-compat'
-  exclude group: 'com.android.support', module: 'support-annotations'
-}
-`;
-    if (!mod.contents.includes("exclude group: 'com.android.support'")) {
-      mod.contents += `
+  // Sin imagen de splash para evitar ENOENT
+  splash: {
+    backgroundColor: "#000000",
+    resizeMode: "contain",
+  },
 
-${insertion}
-`;
-    }
-    return cfg;
-  });
-}
-
-module.exports = ({ config }) => {
-  const base = {
-    ...config,
-    name: "LATIDO",
-    slug: "latido",
-    version: "1.0.0",
-    orientation: "portrait",
-    icon: "./icono.png",
-    scheme: "latido",
-    userInterfaceStyle: "automatic",
-    splash: {
-      image: "./assets/splash.png",
-      resizeMode: "contain",
+  android: {
+    package: "com.latido.app",
+    versionCode: 3,
+    // Usa el mismo icono como foreground del adaptive icon
+    adaptiveIcon: {
+      foregroundImage: "./icono.png",
       backgroundColor: "#000000",
     },
-    android: {
-      package: "com.latido.app",
-      versionCode: 3,
-      adaptiveIcon: {
-        foregroundImage: "./assets/adaptive-icon.png",
-        backgroundColor: "#000000",
-      },
-      permissions: [
-        "android.permission.health.READ_STEPS",
-        "android.permission.health.READ_HEART_RATE",
-      ],
-      minSdkVersion: 26,
-      targetSdkVersion: 35,
-    },
-    extra: {
-      eas: {
-        projectId: "2ac93018-3731-4e46-b345-6d54a5502b8f", // ← tu projectId
-      },
-    },
-    sdkVersion: "53.0.0",
-    platforms: ["ios", "android"],
-  };
+    minSdkVersion: 26,
+    targetSdkVersion: 35,
+    // Deja que el plugin agregue los permisos de Health Connect
+    // permissions: [],
+  },
 
-  // Aplica plugins programáticamente:
-  return withPlugins(base, [
-    [withStripSupportLibs],
+  plugins: [
+    withStripSupportLibs, // Plan A (ya lo tienes)
     [
       "expo-build-properties",
-      {
-        android: {
-          compileSdkVersion: 35,
-          targetSdkVersion: 35,
-          minSdkVersion: 26,
-        },
-      },
+      { android: { compileSdkVersion: 35, targetSdkVersion: 35, minSdkVersion: 26 } },
     ],
     "expo-health-connect",
-  ]);
-};
+  ],
+
+  extra: {
+    eas: { projectId: "2ac93018-3731-4e46-b345-6d54a5502b8f" },
+  },
+
+  sdkVersion: "53.0.0",
+  platforms: ["android"],
+});
