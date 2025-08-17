@@ -1,21 +1,13 @@
 // app.config.js
 const { withAndroidManifest } = require("@expo/config-plugins");
 
-// Plugin inline: fija appComponentFactory y tools:replace en el AndroidManifest.
 const withFixAppComponentFactory = (config) =>
   withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
-
-    // Asegura xmlns:tools
-    manifest.$["xmlns:tools"] =
-      manifest.$["xmlns:tools"] || "http://schemas.android.com/tools";
-
+    manifest.$["xmlns:tools"] = manifest.$["xmlns:tools"] || "http://schemas.android.com/tools";
     const app = manifest.application?.[0];
     if (app) {
-      // Valor explícito + autorización para reemplazar
       app.$["android:appComponentFactory"] = "androidx.core.app.CoreComponentFactory";
-
-      // Si ya hay tools:replace, lo mantenemos y añadimos appComponentFactory
       const existing = app.$["tools:replace"];
       const list = new Set(
         (Array.isArray(existing) ? existing : [existing])
@@ -38,7 +30,7 @@ module.exports = {
   scheme: "latido",
   userInterfaceStyle: "automatic",
   splash: {
-    image: "./assets/splash.png",
+    image: "./splash.png",            // 👈 ahora en raíz
     resizeMode: "contain",
     backgroundColor: "#000000",
   },
@@ -46,7 +38,7 @@ module.exports = {
     package: "com.latido.app",
     versionCode: 3,
     adaptiveIcon: {
-      foregroundImage: "./assets/adaptive-icon.png",
+      foregroundImage: "./adaptive-icon.png", // 👈 ahora en raíz
       backgroundColor: "#000000",
     },
     permissions: [
@@ -58,18 +50,8 @@ module.exports = {
   },
   plugins: [
     "expo-health-connect",
-    [
-      "expo-build-properties",
-      {
-        android: {
-          compileSdkVersion: 35,
-          targetSdkVersion: 35,
-          minSdkVersion: 26,
-        },
-      },
-    ],
-    // 👉 nuestro patch inline (sin archivos externos)
-    withFixAppComponentFactory,
+    ["expo-build-properties", { android: { compileSdkVersion: 35, targetSdkVersion: 35, minSdkVersion: 26 } }],
+    withFixAppComponentFactory, // 👈 patch manifest
   ],
   sdkVersion: "53.0.0",
   platforms: ["ios", "android"],
