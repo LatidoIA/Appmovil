@@ -4,33 +4,49 @@ module.exports = {
   slug: "latido",
   version: "1.0.0",
   orientation: "portrait",
-  icon: "./icono.png",
+  icon: "./icono.png",            // ya existe en la raíz
   scheme: "latido",
   userInterfaceStyle: "automatic",
+
+  // Splash sin imagen (solo color de fondo) para evitar ENOENT
   splash: {
-    image: "./assets/splash.png",
+    // sin "image"
     resizeMode: "contain",
-    backgroundColor: "#000000",
+    backgroundColor: "#000000"
   },
+
   android: {
     package: "com.latido.app",
-    // versionCode: lo maneja EAS (remote); lo dejo fuera para evitar warnings
+    // versionCode lo maneja "remote" en EAS; puedes omitirlo si quieres
+    adaptiveIcon: {
+      // usa tu icono existente como foreground para evitar ./assets/*
+      foregroundImage: "./icono.png",
+      backgroundColor: "#000000"
+    },
     minSdkVersion: 26,
     targetSdkVersion: 35,
-    // ⚠️ Importante: NO listar aquí android.permission.health.*
-    // Health Connect se declarará con el plugin de abajo.
+    // si ya los traías, los mantengo (no afectan el fallo actual)
+    permissions: [
+      "android.permission.health.READ_STEPS",
+      "android.permission.health.READ_HEART_RATE"
+    ]
   },
+
   plugins: [
-    // Mantén expo-build-properties como lo tenías
-    ["expo-build-properties", { android: { compileSdkVersion: 35, targetSdkVersion: 35, minSdkVersion: 26 } }],
-    // Plugin local para inyectar permisos y <queries> de Health Connect
-    "./config/plugins/withHealthConnectPermissions",
+    // tu plugin de Health Connect si lo estás usando:
+    "./config/plugins/withHealthConnectPermissions.js",
+    ["expo-build-properties", {
+      android: { compileSdkVersion: 35, targetSdkVersion: 35, minSdkVersion: 26 }
+    }]
   ],
+
   extra: {
     eas: {
-      projectId: "2ac93018-3731-4e46-b345-6d54a5502b8f", // tu projectId real
-    },
+      // el projectId correcto que te mostró EAS en el mismatch
+      projectId: "2ac93018-3731-4e46-b345-6d54a5502b8f"
+    }
   },
+
   sdkVersion: "53.0.0",
-  platforms: ["ios", "android"],
+  platforms: ["ios", "android"]
 };
