@@ -1,21 +1,46 @@
 // app.config.js
-const { withAndroidManifest } = require("@expo/config-plugins");
+const { withAndroidManifest, withProjectBuildGradle } = require("@expo/config-plugins");
 
-// Patch para evitar el choque de appComponentFactory en el manifest:
+// 🔧 Patch Manifest: evita choque de appComponentFactory
 const withFixAppComponentFactory = (config) =>
   withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
-    // Asegura namespace tools
     manifest.$["xmlns:tools"] = manifest.$["xmlns:tools"] || "http://schemas.android.com/tools";
     const app = manifest.application?.[0];
     if (app) {
       app.$["android:appComponentFactory"] = "androidx.core.app.CoreComponentFactory";
-      const existing = app.$["tools:replace"];
-      const items = new Set(
-        (existing ? String(existing).split(",") : []).map((s) => s.trim()).filter(Boolean)
+      const list = new Set(
+        (app.$["tools:replace"] ? String(app.$["tools:replace"]).split(",") : [])
+          .map((s) => s.trim())
+          .filter(Boolean)
       );
-      items.add("android:appComponentFactory");
-      app.$["tools:replace"] = Array.from(items).join(",");
+      list.add("android:appComponentFactory");
+      app.$["tools:replace"] = Array.from(list).join(",");
+    }
+    return cfg;
+  });
+
+// 🧹 EXCLUIR legacy Support libs (la causa de las clases duplicadas)
+const withStripSupportLibs = (config) =>
+  withProjectBuildGradle(config, (cfg) => {
+    const mod = cfg.modResults;
+    if (mod.language !== "groovy") return cfg;
+
+    const block = `
+configurations.all {
+  exclude group: 'com.android.support'
+  exclude group: 'com.android.support', module: 'support-compat'
+  exclude group: 'com.android.support', module: 'support-v4'
+  exclude group: 'com.android.support', module: 'support-media-compat'
+  exclude group: 'com.android.support', module: 'support-annotations'
+  exclude group: 'com.android.support', module: 'versionedparcelable'
+}
+`;
+    if (!mod.contents.includes("exclude group: 'com.android.support'")) {
+      mod.contents += `
+
+${block}
+`;
     }
     return cfg;
   });
@@ -29,7 +54,7 @@ module.exports = {
   scheme: "latido",
   userInterfaceStyle: "automatic",
   splash: {
-    image: "./splash.png",             // en raíz
+    image: "./splash.png",
     resizeMode: "contain",
     backgroundColor: "#000000",
   },
@@ -37,7 +62,7 @@ module.exports = {
     package: "com.latido.app",
     versionCode: 3,
     adaptiveIcon: {
-      foregroundImage: "./adaptive-icon.png", // en raíz
+      foregroundImage: "./adaptive-icon.png",
       backgroundColor: "#000000",
     },
     permissions: [
@@ -50,10 +75,11 @@ module.exports = {
   plugins: [
     "expo-health-connect",
     ["expo-build-properties", { android: { compileSdkVersion: 35, targetSdkVersion: 35, minSdkVersion: 26 } }],
-    withFixAppComponentFactory, // 👈 plugin inline (no rutas externas)
+    withFixAppComponentFactory,
+    withStripSupportLibs, // 👈 aquí quitamos com.android.support*
   ],
   extra: {
-    eas: { projectId: "2ac93018-3731-4e46-b345-6d54a5502b8f" }, // 👈 tu projectId
+    eas: { projectId: "2ac93018-3731-4e46-b345-6d54a5502b8f" }, // usa tu ID real
   },
   sdkVersion: "53.0.0",
   platforms: ["ios", "android"],
