@@ -1,53 +1,101 @@
 // app.config.js
-export default ({ config }) => ({
-  name: "LATIDO",
-  slug: "latido",
-  version: "1.0.0",
-  orientation: "portrait",
-  icon: "./icono.png",
-  scheme: "latido",
-  userInterfaceStyle: "automatic",
-  splash: {
-    image: "./splash.png",
-    resizeMode: "contain",
-    backgroundColor: "#000000"
-  },
-  android: {
-    package: "com.latido.app",
-    versionCode: 3,
-    adaptiveIcon: {
-      foregroundImage: "./adaptive-icon.png",
-      backgroundColor: "#000000"
-    },
-    // Si ya te funcionaba sin pedir permisos explícitos, podés borrar esto:
-    permissions: [
-      "android.permission.health.READ_STEPS",
-      "android.permission.health.READ_HEART_RATE"
-    ],
-    minSdkVersion: 26,
-    targetSdkVersion: 35
-  },
-  plugins: [
-    "expo-health-connect",
-    [
-      "expo-build-properties",
-      {
-        android: {
-          compileSdkVersion: 35,
-          targetSdkVersion: 35,
-          minSdkVersion: 26
-          // Dejá esto simple; si agregaste cosas raras acá, quitalas para volver al baseline
-        }
-      }
-    ]
-    // ⚠️ Si agregaste "withFixAppComponentFactory", quitalo para volver a la base estable
-  ],
-  extra: {
-    eas: {
-      // ⚠️ NECESARIO para EAS con token/robot user (no interactivo)
-      projectId: process.env.EAS_PROJECT_ID
+const {
+  withProjectBuildGradle,
+  withAndroidManifest,
+} = require('@expo/config-plugins');
+
+// 1) Excluye libs legacy com.android.support (evita choques con AndroidX)
+const withStripLegacySupport = (config) =>
+  withProjectBuildGradle(config, (cfg) => {
+    if (cfg.modResults.language !== 'groovy') return cfg;
+    const marker = '/* ⛳ strip-legacy-support */';
+    if (!cfg.modResults.contents.includes(marker)) {
+      cfg.modResults.contents += `
+${marker}
+subprojects {
+  project.configurations.all {
+    // elimina completamente libs legacy de support 28.x
+    exclude group: 'com.android.support'
+  }
+}
+`;
     }
+    return cfg;
+  });
+
+// 2) Fija appComponentFactory y añade tools:replace
+const withFixAppComponentFactory = (config) =>
+  withAndroidManifest(config, (cfg) => {
+    const manifest = cfg.modResults.manifest;
+    manifest.$ = manifest.$ || {};
+    // asegura el namespace tools
+    manifest.$['xmlns:tools'] =
+      manifest.$['xmlns:tools'] || 'http://schemas.android.com/tools';
+
+    const app = manifest.application?.[0];
+    if (app) {
+      app.$ = app.$ || {};
+      // establece el NUEVO valor requerido por el merger
+      app.$['android:appComponentFactory'] = 'androidx.core.app.CoreComponentFactory';
+
+      // y declara que lo reemplaza
+      const curr = app.$['tools:replace'] || '';
+      if (!curr.includes('android:appComponentFactory')) {
+        app.$['tools:replace'] = curr
+          ? `${curr},android:appComponentFactory`
+          : 'android:appComponentFactory';
+      }
+    }
+    return cfg;
+  });
+
+module.exports = () => ({
+  expo: {
+    name: 'Latido',
+    slug: 'latido',
+    version: '1.0.0',
+    sdkVersion: '53.0.0',
+    platforms: ['ios', 'android'],
+
+    android: {
+      package: 'com.latido.app',
+      permissions: [
+        'android.permission.BLUETOOTH',
+        'android.permission.BLUETOOTH_ADMIN',
+        'android.permission.BLUETOOTH_SCAN',
+        'android.permission.BLUETOOTH_CONNECT',
+        'android.permission.ACCESS_FINE_LOCATION',
+        'android.permission.BODY_SENSORS',
+        'android.permission.ACTIVITY_RECOGNITION',
+        'android.permission.POST_NOTIFICATIONS',
+      ],
+    },
+
+    plugins: [
+      [
+        'expo-build-properties',
+        {
+          android: {
+            compileSdkVersion: 35,
+            targetSdkVersion: 35,
+            minSdkVersion: 26,
+            kotlinVersion: '2.0.21',
+            gradleProperties: {
+              'android.useAndroidX': 'true',
+              'android.enableJetifier': 'true',
+            },
+          },
+        },
+      ],
+      'expo-health-connect',
+      withStripLegacySupport,
+      withFixAppComponentFactory,
+    ],
+
+    extra: {
+      eas: {
+        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f',
+      },
+    },
   },
-  sdkVersion: "53.0.0",
-  platforms: ["ios", "android"]
 });
