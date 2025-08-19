@@ -35,10 +35,7 @@ const withFixAppComponentFactory = (config) =>
     const app = manifest.application?.[0];
     if (app) {
       app.$ = app.$ || {};
-      // establece el NUEVO valor requerido por el merger
       app.$['android:appComponentFactory'] = 'androidx.core.app.CoreComponentFactory';
-
-      // y declara que lo reemplaza
       const curr = app.$['tools:replace'] || '';
       if (!curr.includes('android:appComponentFactory')) {
         app.$['tools:replace'] = curr
@@ -46,6 +43,42 @@ const withFixAppComponentFactory = (config) =>
           : 'android:appComponentFactory';
       }
     }
+    return cfg;
+  });
+
+/**
+ * 3) Añade <queries> para Health Connect:
+ *    - ACTION_HEALTH_CONNECT_SETTINGS
+ *    - paquete com.google.android.apps.healthdata
+ */
+const withHealthConnectQueries = (config) =>
+  withAndroidManifest(config, (cfg) => {
+    const manifest = cfg.modResults.manifest;
+
+    // Asegura el nodo <queries>
+    manifest.queries = manifest.queries || [{}];
+    const queries = manifest.queries[0];
+
+    // <queries><intent><action android:name="androidx.health.ACTION_HEALTH_CONNECT_SETTINGS" />
+    queries.intent = queries.intent || [];
+    const HC_SETTINGS = 'androidx.health.ACTION_HEALTH_CONNECT_SETTINGS';
+    const hasIntent = queries.intent.some(
+      (i) => Array.isArray(i.action) && i.action.some((a) => a.$['android:name'] === HC_SETTINGS)
+    );
+    if (!hasIntent) {
+      queries.intent.push({
+        action: [{ $: { 'android:name': HC_SETTINGS } }],
+      });
+    }
+
+    // <queries><package android:name="com.google.android.apps.healthdata" />
+    queries.package = queries.package || [];
+    const HC_PKG = 'com.google.android.apps.healthdata';
+    const hasPkg = queries.package.some((p) => p.$['android:name'] === HC_PKG);
+    if (!hasPkg) {
+      queries.package.push({ $: { 'android:name': HC_PKG } });
+    }
+
     return cfg;
   });
 
@@ -60,6 +93,7 @@ module.exports = () => ({
     android: {
       package: 'com.latido.app',
       permissions: [
+        // --- TUS PERMISOS EXISTENTES ---
         'android.permission.BLUETOOTH',
         'android.permission.BLUETOOTH_ADMIN',
         'android.permission.BLUETOOTH_SCAN',
@@ -68,6 +102,15 @@ module.exports = () => ({
         'android.permission.BODY_SENSORS',
         'android.permission.ACTIVITY_RECOGNITION',
         'android.permission.POST_NOTIFICATIONS',
+
+        // --- Health Connect (coinciden con lo que pide tu App.js) ---
+        'android.permission.health.READ_HEART_RATE',
+        'android.permission.health.READ_STEPS',
+
+        // Si luego lees/escribes más tipos, añade aquí sus READ_/WRITE_ correspondientes
+        // p.ej: 'android.permission.health.READ_BLOOD_PRESSURE'
+        //       'android.permission.health.READ_DISTANCE'
+        //       'android.permission.health.WRITE_HEART_RATE', etc.
       ],
     },
 
@@ -87,9 +130,16 @@ module.exports = () => ({
           },
         },
       ],
+
+      // Health Connect (Expo)
       'expo-health-connect',
+
+      // Tus custom plugins
       withStripLegacySupport,
       withFixAppComponentFactory,
+
+      // Añadimos consultas de manifest para Health Connect
+      withHealthConnectQueries,
     ],
 
     extra: {
