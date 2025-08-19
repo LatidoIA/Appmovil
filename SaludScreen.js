@@ -20,18 +20,13 @@ export default function SaludScreen() {
   const [data, setData] = useState(null); // { steps, bpm, at }
 
   const refreshStatus = useCallback(async () => {
-    try {
-      const s = await hcGetStatusDebug();
-      console.log('[SALUD] status:', s);
-      setStatusLabel(`${s.label} (${s.status})`);
-      setAvailable(s.label === 'SDK_AVAILABLE');
-      return s.label === 'SDK_AVAILABLE';
-    } catch (e) {
-      console.log('[SALUD] status error:', e);
-      setStatusLabel('STATUS_ERROR');
-      setAvailable(false);
-      return false;
-    }
+    const s = await hcGetStatusDebug();
+    console.log('[SALUD] status:', s);
+    setStatusLabel(`${s.label} (${s.status})`);
+    // NO bloqueamos la UI por STATUS_ERROR; lo tratamos como “desconocido”.
+    const avail = s.label === 'SDK_AVAILABLE';
+    setAvailable(avail);
+    return avail;
   }, []);
 
   const fetchData = useCallback(async () => {
@@ -54,9 +49,11 @@ export default function SaludScreen() {
       console.log('[SALUD] data:', { steps, hr });
       setData({ steps, bpm: hr.bpm, at: hr.at });
 
-      // Heurística: si las lecturas no fallaron, asumimos permisos concedidos.
-      setGranted(true);
-      return true;
+      // Consideramos “granted” si AL MENOS una lectura fue fulfill.
+      const ok = stepsRes.status === 'fulfilled' || hrRes.status === 'fulfilled';
+      setGranted(ok);
+      if (ok) setAvailable(true); // si leer funciona, el SDK está utilizable
+      return ok;
     } catch (e) {
       console.log('[SALUD] fetchData error:', e);
       setData(null);
@@ -69,11 +66,7 @@ export default function SaludScreen() {
     console.log('[SALUD] pedir permisos');
     setLoading(true);
     try {
-      const isAvail = await refreshStatus();
-      if (!isAvail) {
-        setGranted(false);
-        return;
-      }
+      await refreshStatus(); // solo informativo
       const ok = await Promise.race([
         quickSetup(),
         new Promise((r) => setTimeout(() => r(false), 10000)),
@@ -94,34 +87,29 @@ export default function SaludScreen() {
     }
   }, [fetchData, refreshStatus]);
 
-  // 1) Primer chequeo
+  // Al montar: status + sonda de lectura (no bloqueante)
   useEffect(() => {
     (async () => {
       await refreshStatus();
+      await fetchData();
     })();
-  }, [refreshStatus]);
+  }, [refreshStatus, fetchData]);
 
-  // 2) Re-chequear AUTOMÁTICAMENTE al volver a enfocar la pestaña
+  // Al volver a enfocar: re-sondear SIEMPRE (aunque status sea error)
   useEffect(() => {
     (async () => {
       if (!isFocused) return;
       setLoading(true);
       try {
-        const avail = await refreshStatus();
-        if (avail) {
-          // Intento de lectura “sonda” para detectar permisos ya concedidos
-          const ok = await fetchData();
-          setGranted(ok);
-        } else {
-          setGranted(false);
-          setData(null);
-        }
+        await refreshStatus();
+        await fetchData();
       } finally {
         setLoading(false);
       }
     })();
   }, [isFocused, refreshStatus, fetchData]);
 
+  // ---------------- UI ----------------
   return (
     <View style={{ flex: 1, justifyContent: 'center', padding: 24 }}>
       {loading ? (
@@ -131,13 +119,13 @@ export default function SaludScreen() {
         </View>
       ) : (
         <>
-          {!available && (
+          {!available && !granted && (
             <>
               <Text style={{ fontSize: 16, marginBottom: 6 }}>
                 Health Connect no está disponible (estado: {statusLabel}).
               </Text>
               <Text style={{ fontSize: 14, opacity: 0.8, marginBottom: 12 }}>
-                Instala/actualiza y habilita Health Connect, luego vuelve aquí.
+                Si ya lo instalaste/permitiste, toca “Revisar de nuevo”.
               </Text>
 
               <Button
@@ -147,9 +135,9 @@ export default function SaludScreen() {
                   setLoading(true);
                   try {
                     await hcOpenSettings();
-                    // Pequeña espera para que el sistema aplique cambios
                     await new Promise((r) => setTimeout(r, 600));
                     await refreshStatus();
+                    await fetchData(); // <- sonda tras volver
                   } finally {
                     setLoading(false);
                   }
@@ -163,6 +151,7 @@ export default function SaludScreen() {
                   setLoading(true);
                   try {
                     await refreshStatus();
+                    await fetchData(); // <- sonda incluso si STATUS_ERROR
                   } finally {
                     setLoading(false);
                   }
@@ -171,59 +160,19 @@ export default function SaludScreen() {
             </>
           )}
 
-          {available && !granted && (
-            <>
-              <Text style={{ fontSize: 16, marginBottom: 6 }}>
-                Otorga permisos de lectura de Pasos y Frecuencia Cardíaca.
+          {(available || granted) && !data && (
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 16, marginBottom: 12 }}>
+                Casi listo. Intentemos leer tus datos.
               </Text>
-
-              <Button title="Solicitar permisos ahora" onPress={handleRequest} />
-
-              <View style={{ height: 12 }} />
               <Button
-                title="Abrir Health Connect"
-                onPress={async () => {
-                  console.log('[SALUD] abrir HC (desde granted=false)');
-                  setLoading(true);
-                  try {
-                    await hcOpenSettings();
-                    await new Promise((r) => setTimeout(r, 600));
-                    // Tras volver, re-sondear de inmediato
-                    const avail = await refreshStatus();
-                    if (avail) {
-                      const ok = await fetchData();
-                      setGranted(ok);
-                    }
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
+                title="Solicitar permisos ahora"
+                onPress={handleRequest}
               />
-
-              <View style={{ height: 12 }} />
-              <Button
-                title="Revisar de nuevo"
-                onPress={async () => {
-                  console.log('[SALUD] revisar de nuevo (granted=false)');
-                  setLoading(true);
-                  try {
-                    const avail = await refreshStatus();
-                    if (avail) {
-                      const ok = await fetchData();
-                      setGranted(ok);
-                    } else {
-                      setGranted(false);
-                      setData(null);
-                    }
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
-              />
-            </>
+            </View>
           )}
 
-          {available && granted && (
+          {(available || granted) && data && (
             <View style={{ alignItems: 'center' }}>
               <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 8 }}>
                 Lecturas recientes
