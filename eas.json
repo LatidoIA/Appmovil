@@ -9,11 +9,7 @@
       "android": {
         "buildType": "apk",
         "credentialsSource": "local"
-      },
-      "hooks": {
-        "post-install": "npx -y expo install --non-interactive expo-intent-launcher || true"
       }
     }
   }
 }
-
