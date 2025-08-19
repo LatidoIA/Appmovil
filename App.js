@@ -1,6 +1,6 @@
 // App.js
 import React, { useEffect } from 'react';
-import { View, TouchableOpacity, LogBox, Platform } from 'react-native';
+import { View, TouchableOpacity, LogBox, Platform, Linking } from 'react-native';
 import {
   useFonts,
   Montserrat_400Regular,
@@ -14,6 +14,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+import * as IntentLauncher from 'expo-intent-launcher'; // ⬅️ NUEVO
 import CustomText from './CustomText';
 import theme from './theme';
 
@@ -116,6 +117,26 @@ async function setupNotificationsDeferred() {
   }
 }
 
+/** ⬅️ NUEVO: abrir Ajustes de Health Connect (Android) con fallback a Play Store/web */
+async function abrirAjustesHC() {
+  if (Platform.OS !== 'android') return;
+  try {
+    await IntentLauncher.startActivityAsync(
+      'androidx.health.ACTION_HEALTH_CONNECT_SETTINGS'
+    );
+  } catch (e) {
+    try {
+      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+        data: 'market://details?id=com.google.android.apps.healthdata',
+      });
+    } catch {
+      await Linking.openURL(
+        'https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata'
+      );
+    }
+  }
+}
+
 function MainTabs() {
   const navigation = useNavigation();
   const [profile, setProfile] = React.useState({ emergencyContact: null, emergencyName: '' });
@@ -212,6 +233,13 @@ function MainTabs() {
             <TouchableOpacity onPress={() => navigation.navigate('Settings')} style={{ marginHorizontal: theme.spacing.sm }}>
               <Ionicons name="settings" size={24} color={theme.colors.textSecondary} />
             </TouchableOpacity>
+
+            {/* ⬅️ NUEVO: acceso rápido a Health Connect (solo Android) */}
+            {Platform.OS === 'android' && (
+              <TouchableOpacity onPress={abrirAjustesHC} style={{ marginHorizontal: theme.spacing.sm }}>
+                <Ionicons name="pulse" size={24} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            )}
           </View>
         ),
         tabBarIcon: ({ color, size }) => {
