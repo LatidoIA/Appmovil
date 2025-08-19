@@ -1,4 +1,7 @@
 {
+  "name": "latido",
+  "version": "1.0.0",
+  "private": true,
   "license": "0BSD",
   "main": "index.js",
   "scripts": {
@@ -12,7 +15,8 @@
     "expo-status-bar": "~2.2.3",
     "react": "19.0.0",
     "react-native": "0.79.5",
-    "expo-intent-launcher": "^11.6.0"
+
+    "expo-intent-launcher": "^11.6.0",
     "expo-av": "~15.1.7",
     "expo-audio": "~0.4.8",
     "expo-speech": "~13.1.7",
@@ -63,7 +67,5 @@
         "listUnknownPackages": false
       }
     }
-  },
-  "private": true
+  }
 }
-
