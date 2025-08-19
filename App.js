@@ -1,6 +1,6 @@
 // App.js
 import React, { useEffect } from 'react';
-import { View, TouchableOpacity, LogBox, Platform, Linking } from 'react-native';
+import { View, TouchableOpacity, LogBox, Platform, Linking, Alert } from 'react-native';
 import {
   useFonts,
   Montserrat_400Regular,
@@ -14,7 +14,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-import * as IntentLauncher from 'expo-intent-launcher'; // ⬅️ NUEVO
+import * as IntentLauncher from 'expo-intent-launcher';
 import CustomText from './CustomText';
 import theme from './theme';
 
@@ -117,25 +117,72 @@ async function setupNotificationsDeferred() {
   }
 }
 
-/** ⬅️ NUEVO: abrir Ajustes de Health Connect (Android) con fallback a Play Store/web */
-async function abrirAjustesHC() {
+/** ---- UTILIDADES HEALTH CONNECT (Android) ---- */
+async function openHealthConnectSettings() {
   if (Platform.OS !== 'android') return;
+  // 1) Intent directo a los ajustes de Health Connect
+  try {
+    // Acción pública de ajustes de Health Connect
+    await IntentLauncher.startActivityAsync('androidx.health.ACTION_HEALTH_CONNECT_SETTINGS');
+    return;
+  } catch {}
+  // 2) Fallback: pantalla de detalles de la app de Health Connect
   try {
     await IntentLauncher.startActivityAsync(
-      'androidx.health.ACTION_HEALTH_CONNECT_SETTINGS'
+      IntentLauncher.ActivityAction.APPLICATION_DETAILS_SETTINGS,
+      { data: 'package:com.google.android.apps.healthdata' }
     );
-  } catch (e) {
-    try {
-      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-        data: 'market://details?id=com.google.android.apps.healthdata',
-      });
-    } catch {
-      await Linking.openURL(
-        'https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata'
-      );
-    }
+    return;
+  } catch {}
+  // 3) Último recurso: abrir Play Store
+  try {
+    await Linking.openURL('market://details?id=com.google.android.apps.healthdata');
+  } catch {
+    await Linking.openURL('https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata');
   }
 }
+
+async function ensureHealthPermissions() {
+  if (Platform.OS !== 'android') {
+    Alert.alert('Solo Android', 'Health Connect solo aplica a Android.');
+    return;
+  }
+  try {
+    // Importación dinámica para no romper si el módulo no está presente
+    const HC = await import('react-native-health-connect');
+    const { isAvailable, initialize, requestPermission } = HC;
+
+    const available = await isAvailable();
+    if (!available) {
+      console.debug('[SALUD] Health Connect no disponible: abriendo ajustes…');
+      await openHealthConnectSettings();
+      return;
+    }
+
+    await initialize();
+
+    // Define aquí los tipos que realmente usas
+    const permissions = [
+      { accessType: 'read', recordType: 'HeartRate' },
+      { accessType: 'read', recordType: 'Steps' },
+      // añade más si tu app los usa, p.ej. ActiveCaloriesBurned, Distance, BloodPressure, etc.
+    ];
+
+    const granted = await requestPermission(permissions);
+    const allOk = Array.isArray(granted) && granted.length > 0;
+    if (allOk) {
+      Alert.alert('Permisos', 'Permisos de Health Connect concedidos.');
+    } else {
+      Alert.alert('Permisos', 'Revisa permisos en Ajustes de Health Connect.');
+      await openHealthConnectSettings();
+    }
+  } catch (e) {
+    console.debug('[SALUD] permisos error:', e?.message || String(e));
+    // Si el módulo nativo no está disponible o falla, abre ajustes igualmente
+    await openHealthConnectSettings();
+  }
+}
+/** ---- FIN UTILIDADES HEALTH CONNECT ---- */
 
 function MainTabs() {
   const navigation = useNavigation();
@@ -224,22 +271,23 @@ function MainTabs() {
               )}
             </View>
 
+            {/* Botón de emergencia (lo tenías) */}
             <TouchableOpacity onPress={triggerEmergency} style={{ marginHorizontal: theme.spacing.sm }}>
               <Ionicons name="warning" size={24} color={theme.colors.error} />
             </TouchableOpacity>
+
+            {/* NUEVO: Botón Health (pide permisos / abre ajustes) */}
+            <TouchableOpacity onPress={ensureHealthPermissions} style={{ marginHorizontal: theme.spacing.sm }}>
+              <Ionicons name="fitness" size={24} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+
+            {/* Perfil y ajustes (lo tuyo) */}
             <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={{ marginHorizontal: theme.spacing.sm }}>
               <Ionicons name="person-circle" size={24} color={theme.colors.textSecondary} />
             </TouchableOpacity>
             <TouchableOpacity onPress={() => navigation.navigate('Settings')} style={{ marginHorizontal: theme.spacing.sm }}>
               <Ionicons name="settings" size={24} color={theme.colors.textSecondary} />
             </TouchableOpacity>
-
-            {/* ⬅️ NUEVO: acceso rápido a Health Connect (solo Android) */}
-            {Platform.OS === 'android' && (
-              <TouchableOpacity onPress={abrirAjustesHC} style={{ marginHorizontal: theme.spacing.sm }}>
-                <Ionicons name="pulse" size={24} color={theme.colors.textSecondary} />
-              </TouchableOpacity>
-            )}
           </View>
         ),
         tabBarIcon: ({ color, size }) => {
