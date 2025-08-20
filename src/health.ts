@@ -11,6 +11,19 @@ import {
 } from 'react-native-health-connect';
 
 // ——————————————————————————————
+// Util: asegurar inicialización (idempotente)
+// ——————————————————————————————
+export async function ensureInitialized() {
+  if (Platform.OS !== 'android') return false;
+  try {
+    await initialize(); // no falla si ya estaba inicializado
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ——————————————————————————————
 // Mapa legible de estados
 // ——————————————————————————————
 const statusLabel = {
@@ -27,6 +40,7 @@ const statusLabel = {
 export async function hcGetStatusDebug() {
   if (Platform.OS !== 'android') return { status: -1, label: 'NOT_ANDROID' };
   try {
+    await ensureInitialized();
     const s = await getSdkStatus();
     return { status: s, label: statusLabel[s] ?? String(s) };
   } catch {
@@ -74,9 +88,8 @@ const HEALTH_PERMS = [
 export async function quickSetup() {
   if (Platform.OS !== 'android') return false;
   try {
-    await initialize(); // idempotente
+    await ensureInitialized();
     const res = await requestPermission(HEALTH_PERMS);
-    // res es un array con los permisos retornados; si vuelve vacío, lo tratamos como no concedido
     return Array.isArray(res) ? res.length > 0 : !!res;
   } catch (e) {
     console.debug('quickSetup error:', e?.message || e);
@@ -99,14 +112,14 @@ function nowISO() {
 export async function readTodaySteps() {
   if (Platform.OS !== 'android') return { steps: 0 };
   try {
+    await ensureInitialized();
     const records = await readRecords('Steps', {
       timeRangeFilter: { startTime: startOfTodayISO(), endTime: nowISO() },
     });
-    // Health Connect Steps tiene propiedad 'count'
     const total = (records || []).reduce((acc, r) => acc + (r?.count || 0), 0);
     return { steps: total };
   } catch (e) {
-    // sin permiso o sin datos
+    console.debug('readTodaySteps error:', e?.message || e);
     return { steps: 0 };
   }
 }
@@ -114,20 +127,18 @@ export async function readTodaySteps() {
 export async function readLatestHeartRate() {
   if (Platform.OS !== 'android') return { bpm: null, at: null };
   try {
+    await ensureInitialized();
     const records = await readRecords('HeartRate', {
       timeRangeFilter: { startTime: startOfTodayISO(), endTime: nowISO() },
-      // Si tu versión soporta "ascending: false, limit: 1" puedes añadirlo.
     });
     if (!records || records.length === 0) return { bpm: null, at: null };
 
-    // Tomar la última muestra por startTime
     const last = records.reduce((a, b) => {
       const atA = new Date(a?.startTime || 0).getTime();
       const atB = new Date(b?.startTime || 0).getTime();
       return atB > atA ? b : a;
     });
 
-    // En HeartRate cada record puede traer samples; si no, usa average
     let bpm = null;
     if (Array.isArray(last?.samples) && last.samples.length > 0) {
       bpm = last.samples[last.samples.length - 1]?.beatsPerMinute ?? null;
@@ -137,6 +148,7 @@ export async function readLatestHeartRate() {
 
     return { bpm: bpm ?? null, at: last?.startTime ?? null };
   } catch (e) {
+    console.debug('readLatestHeartRate error:', e?.message || e);
     return { bpm: null, at: null };
   }
 }
