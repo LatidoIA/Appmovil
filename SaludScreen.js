@@ -1,89 +1,84 @@
 // src/SaludScreen.js
-import React, { useEffect, useState } from 'react';
-import { View, Text, Button, AppState } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { View, Text, Button, ActivityIndicator } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+
 import {
-  ensureInitialized,
   hcGetStatusDebug,
+  isPermissionGranted,
   readTodaySteps,
   readLatestHeartRate,
 } from './health';
 
 export default function SaludScreen() {
-  const [statusLabel, setStatusLabel] = useState('');
-  const [data, setData] = useState({ steps: 0, bpm: null, at: null });
+  const [busy, setBusy] = useState(false);
+  const [statusLabel, setStatusLabel] = useState('—');
+  const [hasPerms, setHasPerms] = useState(false);
+  const [steps, setSteps] = useState(0);
+  const [bpm, setBpm] = useState(null);
 
-  async function refreshStatus() {
+  const refreshAll = useCallback(async () => {
+    setBusy(true);
     try {
-      await ensureInitialized();
       const s = await hcGetStatusDebug();
-      setStatusLabel(`${s.label} (${s.status})`);
-    } catch {
-      setStatusLabel('STATUS_ERROR');
-    }
-  }
+      setStatusLabel(s.label || String(s.status));
 
-  async function fetchData() {
-    await ensureInitialized();
-    const [stepsRes, hrRes] = await Promise.allSettled([
-      readTodaySteps(),
-      readLatestHeartRate(),
-    ]);
+      // Revisa permisos cada vez que la pestaña gana foco
+      const granted = await isPermissionGranted();
+      setHasPerms(!!granted);
 
-    const steps =
-      stepsRes.status === 'fulfilled' && stepsRes.value
-        ? stepsRes.value.steps ?? 0
-        : 0;
-
-    const hr =
-      hrRes.status === 'fulfilled' && hrRes.value
-        ? { bpm: hrRes.value.bpm ?? null, at: hrRes.value.at ?? null }
-        : { bpm: null, at: null };
-
-    setData({ steps, bpm: hr.bpm, at: hr.at });
-  }
-
-  // Refrescar al volver de Health Connect (con pequeña espera)
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', async (st) => {
-      if (st === 'active') {
-        // da tiempo a que App.js termine quickSetup
-        await new Promise((r) => setTimeout(r, 400));
-        await refreshStatus();
-        await fetchData();
+      if (granted) {
+        const [st, hr] = await Promise.all([
+          readTodaySteps(),
+          readLatestHeartRate(),
+        ]);
+        setSteps(st?.steps ?? 0);
+        setBpm(hr?.bpm ?? null);
       }
-    });
-    return () => sub.remove();
+    } catch (e) {
+      console.debug('[SALUD] refreshAll error:', e?.message || e);
+    } finally {
+      setBusy(false);
+    }
   }, []);
 
-  // Carga inicial
-  useEffect(() => {
-    (async () => {
-      await refreshStatus();
-      await fetchData();
-    })();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      // Al entrar a la pestaña, refresca estatus y datos
+      refreshAll();
+    }, [refreshAll])
+  );
 
   return (
-    <View style={{ flex: 1, padding: 16 }}>
-      {/* Bloque compacto (no bloquea tu UI de métricas) */}
-      <View style={{ alignItems: 'center', marginTop: 24, marginBottom: 12 }}>
-        <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 8 }}>
-          Lecturas recientes
-        </Text>
-        <Text style={{ fontSize: 12, opacity: 0.6, marginBottom: 10 }}>
-          Estado: {statusLabel || '—'}
-        </Text>
-        <Text style={{ fontSize: 16, marginBottom: 4 }}>
-          Último pulso: {data?.bpm != null ? `${data.bpm} bpm` : '—'}
-        </Text>
-        <Text style={{ fontSize: 16, marginBottom: 16 }}>
-          Pasos (hoy): {data?.steps ?? 0}
-        </Text>
-        <Button title="Actualizar datos" onPress={fetchData} />
-      </View>
+    <View style={{ flex: 1, justifyContent: 'center', padding: 24 }}>
+      {busy ? (
+        <View style={{ alignItems: 'center' }}>
+          <ActivityIndicator />
+          <Text style={{ marginTop: 12 }}>Actualizando Salud…</Text>
+        </View>
+      ) : (
+        <View style={{ alignItems: 'center' }}>
+          <Text style={{ fontSize: 20, fontWeight: '700', marginBottom: 8 }}>
+            Lecturas recientes
+          </Text>
+          <Text style={{ opacity: 0.6, marginBottom: 16 }}>
+            Estado: {statusLabel}
+            {!hasPerms ? ' (sin permisos de lectura)' : ''}
+          </Text>
 
-      {/* Aquí mantén todas tus otras métricas/accesorios de siempre */}
-      {/* ... */}
+          <Text style={{ fontSize: 16, marginBottom: 6 }}>
+            Último pulso: {bpm != null ? `${bpm} bpm` : '—'}
+          </Text>
+          <Text style={{ fontSize: 16, marginBottom: 16 }}>
+            Pasos (hoy): {steps ?? 0}
+          </Text>
+
+          <Button
+            title="ACTUALIZAR DATOS"
+            onPress={refreshAll}
+          />
+        </View>
+      )}
     </View>
   );
 }
