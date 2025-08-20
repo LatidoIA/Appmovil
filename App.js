@@ -1,6 +1,6 @@
 // App.js
-import React, { useEffect, useState, useRef } from 'react';
-import { View, TouchableOpacity, LogBox, Platform, Modal, Text, Button, Pressable, AppState } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, TouchableOpacity, LogBox, Platform, Modal, AppState, Text } from 'react-native';
 import {
   useFonts,
   Montserrat_400Regular,
@@ -17,8 +17,8 @@ import * as Notifications from 'expo-notifications';
 import CustomText from './CustomText';
 import theme from './theme';
 
-// 👇 añadimos la lógica que abre Health Connect (reutiliza tu módulo actual)
-import { hcOpenSettings } from './health';
+// Health wizard (reutiliza la lógica del botón “que sí funcionaba”)
+import { hcOpenSettings, quickSetup } from './src/health';
 
 // (opcional) crash logger temprano; no debe romper el arranque
 try {
@@ -44,8 +44,8 @@ const STREAK_CNT  = '@streak_count';
 const STREAK_LAST = '@streak_last_open';
 const STREAK_BEST = '@streak_best';
 
-// Onboarding HC (solo primera vez)
-const ONBOARD_HC_KEY = '@onboard_hc_done';
+// Wizard keys
+const HC_WIZARD_STATE = '@hc_wizard_state'; // 'done' | 'opened' | 'skipped'
 
 function dateOnlyStr(d = new Date()) {
   const y = d.getFullYear();
@@ -111,6 +111,7 @@ async function setupNotificationsDeferred() {
         lightColor: '#FF231F7C'
       });
     } else {
+      // iOS: pedir permisos de manera educada (no al milisegundo 0 de la app)
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') {
         console.debug('Notifs: permiso iOS no concedido');
@@ -180,7 +181,6 @@ function MainTabs() {
         headerTitle: '',
         headerStyle: { backgroundColor: theme.colors.surface },
         headerTintColor: theme.colors.textPrimary,
-        // 👉 mantenemos tus iconos originales; la lógica de permisos de HC ya NO va aquí
         headerRight: () => (
           <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: theme.spacing.md }}>
             <View style={{ position: 'relative', marginHorizontal: theme.spacing.sm }}>
@@ -250,66 +250,47 @@ function MainTabs() {
   );
 }
 
-function HealthOnboardingModal({ visible, onClose }) {
-  const [busy, setBusy] = useState(false);
-
-  async function handleGrant() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await hcOpenSettings(); // abre Health Connect
-      // Marcamos onboarding como completado: no volver a mostrar
-      await AsyncStorage.setItem(ONBOARD_HC_KEY, '1');
-      onClose?.();
-    } catch (e) {
-      console.debug('[HC Onboarding] open error:', e?.message || e);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+// ———————————————
+// Modal de permisos (una sola vez)
+// ———————————————
+function HealthPermissionModal({ visible, onSkip, onGrant }) {
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
+    <Modal visible={visible} animationType="fade" transparent>
       <View style={{
-        flex: 1, backgroundColor: 'rgba(0,0,0,0.35)',
-        alignItems: 'center', justifyContent: 'center', padding: 24
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.35)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24,
       }}>
         <View style={{
           width: '100%',
-          maxWidth: 420,
-          backgroundColor: '#fff',
           borderRadius: 16,
-          padding: 18,
-          shadowColor: '#000',
-          shadowOpacity: 0.15,
-          shadowRadius: 12,
-          elevation: 4
+          backgroundColor: theme.colors.surface,
+          padding: 20,
         }}>
-          <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 6 }}>Permisos de Salud</Text>
-          <Text style={{ fontSize: 14, opacity: 0.9, marginBottom: 14 }}>
+          <CustomText style={{ fontSize: 18, fontWeight: '700', color: theme.colors.textPrimary, marginBottom: 8 }}>
+            Permisos de Salud
+          </CustomText>
+          <CustomText style={{ fontSize: 14, color: theme.colors.textSecondary, marginBottom: 16 }}>
             Para mostrar tus pasos y pulso, Latido necesita permisos en Health Connect.
-          </Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
-            <Pressable onPress={onClose} disabled={busy} style={{ paddingVertical: 8, paddingHorizontal: 12 }}>
-              <Text style={{ color: '#555', fontWeight: '600' }}>Ahora no</Text>
-            </Pressable>
-            <Pressable
-              onPress={handleGrant}
-              disabled={busy}
+          </CustomText>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+            <TouchableOpacity onPress={onSkip} style={{ paddingVertical: 10, paddingHorizontal: 12, marginRight: 8 }}>
+              <Text style={{ color: theme.colors.textSecondary, fontSize: 15 }}>Ahora no</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onGrant}
               style={{
-                paddingVertical: 10, paddingHorizontal: 14,
-                borderRadius: 10, backgroundColor: '#1e88e5', opacity: busy ? 0.6 : 1
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                backgroundColor: theme.colors.primary,
+                borderRadius: 10,
               }}
             >
-              <Text style={{ color: 'white', fontWeight: '700' }}>
-                {busy ? 'Abriendo…' : 'Conceder permisos'}
-              </Text>
-            </Pressable>
+              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Conceder permisos</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </View>
@@ -320,35 +301,80 @@ function HealthOnboardingModal({ visible, onClose }) {
 export default function App() {
   const [fontsLoaded] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_700Bold });
 
-  // Modal de onboarding Health Connect (solo primer arranque en Android)
-  const [showHCModal, setShowHCModal] = useState(false);
-  const appState = useRef(AppState.currentState);
+  // Estado del wizard
+  const [wizardVisible, setWizardVisible] = React.useState(false);
+  const [waitingReturn, setWaitingReturn] = React.useState(false);
+
+  // Muestra el modal si es primera vez o si el usuario salió sin conceder
+  useEffect(() => {
+    (async () => {
+      try {
+        const state = await AsyncStorage.getItem(HC_WIZARD_STATE);
+        if (state !== 'done') {
+          setWizardVisible(true);
+        }
+      } catch {}
+    })();
+  }, []);
+
+  // Maneja el “volver” desde Health Connect
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (st) => {
+      if (st === 'active' && waitingReturn) {
+        setWaitingReturn(false);
+        try {
+          const ok = await quickSetup(); // solicita permisos específicos (pasos + pulso)
+          await AsyncStorage.setItem(HC_WIZARD_STATE, ok ? 'done' : 'skipped');
+        } catch {
+          // si falla, no bloqueamos; el usuario puede reintentar desde ajustes
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [waitingReturn]);
 
   useEffect(() => {
     if (fontsLoaded) {
       SplashScreen.hideAsync().catch(() => {});
+      // Inicializa notificaciones **después** del primer render estable
       const t = setTimeout(() => { setupNotificationsDeferred(); }, 1200);
       return () => clearTimeout(t);
     }
   }, [fontsLoaded]);
 
+  // Auto-actualiza racha al iniciar
   useEffect(() => {
     (async () => {
+      const today = dateOnlyStr(new Date());
       try {
-        if (Platform.OS !== 'android') return;
-        const done = await AsyncStorage.getItem(ONBOARD_HC_KEY);
-        if (!done) setShowHCModal(true);
-      } catch {}
-    })();
-  }, []);
+        const [cr, lr, br] = await Promise.all([
+          AsyncStorage.getItem(STREAK_CNT),
+          AsyncStorage.getItem(STREAK_LAST),
+          AsyncStorage.getItem(STREAK_BEST)
+        ]);
 
-  // Si el usuario regresó desde los ajustes, no necesitamos hacer nada aquí;
-  // la pestaña Salud se refresca sola con su propia lógica al enfocarse.
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (next) => {
-      appState.current = next;
-    });
-    return () => sub.remove();
+        let cnt  = parseInt(cr || '0', 10) || 0;
+        let best = parseInt(br || '0', 10) || 0;
+        const last = lr || null;
+
+        if (!last) {
+          cnt = 1;
+        } else {
+          const diff = daysBetweenUTC(last, today);
+          if (diff === 1) cnt += 1;
+          else if (diff > 1) cnt = 1;
+        }
+        if (cnt > best) best = cnt;
+
+        await AsyncStorage.multiSet([
+          [STREAK_CNT,  String(cnt)],
+          [STREAK_LAST, today],
+          [STREAK_BEST, String(best)]
+        ]);
+      } catch (e) {
+        console.debug('Streak auto-update error:', e?.message || e);
+      }
+    })();
   }, []);
 
   if (!fontsLoaded) return null;
@@ -366,6 +392,23 @@ export default function App() {
 
   return (
     <>
+      <HealthPermissionModal
+        visible={wizardVisible}
+        onSkip={async () => {
+          setWizardVisible(false);
+          try { await AsyncStorage.setItem(HC_WIZARD_STATE, 'skipped'); } catch {}
+        }}
+        onGrant={async () => {
+          setWizardVisible(false);
+          setWaitingReturn(true);
+          try {
+            await AsyncStorage.setItem(HC_WIZARD_STATE, 'opened');
+          } catch {}
+          // Mismo flujo que el “botón que sí funcionaba”: abrir ajustes directamente
+          try { await hcOpenSettings(); } catch {}
+        }}
+      />
+
       <NavigationContainer theme={navTheme} onReady={() => {/* hook si quisieras inicializar algo aquí */}}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Main"        component={MainTabs} />
@@ -375,14 +418,6 @@ export default function App() {
           <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
         </Stack.Navigator>
       </NavigationContainer>
-
-      {/* Modal pequeño de permisos de Health (solo primera vez) */}
-      {Platform.OS === 'android' && (
-        <HealthOnboardingModal
-          visible={showHCModal}
-          onClose={() => setShowHCModal(false)}
-        />
-      )}
     </>
   );
 }
