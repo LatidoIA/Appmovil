@@ -1,134 +1,112 @@
 // src/health.js
 import { Platform, Linking } from 'react-native';
-import * as RNHC from 'react-native-health-connect';
+import {
+  initialize,
+  requestPermission,
+  getSdkStatus,
+  openHealthConnectSettings,
+  openHealthConnectDataManagement,
+  readRecords,
+  SdkAvailabilityStatus,
+} from 'react-native-health-connect';
 
-// -----------------------------
-// Init
-// -----------------------------
-let _initOncePromise = null;
-async function ensureInit() {
-  if (Platform.OS !== 'android') return false;
-  if (!_initOncePromise) {
-    _initOncePromise = (async () => {
-      try {
-        if (typeof RNHC.initialize === 'function') {
-          await RNHC.initialize();
-        }
-        return true;
-      } catch (e) {
-        console.log('[HC] initialize error:', e?.message || e);
-        return false;
-      }
-    })();
-  }
-  return _initOncePromise;
-}
+// ——————————————————————————————
+// Mapa legible de estados
+// ——————————————————————————————
+const statusLabel = {
+  [SdkAvailabilityStatus.SDK_AVAILABLE]: 'SDK_AVAILABLE',
+  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED]: 'PROVIDER_UPDATE_REQUIRED',
+  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_DISABLED]: 'PROVIDER_DISABLED',
+  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_NOT_INSTALLED]: 'PROVIDER_NOT_INSTALLED',
+  [SdkAvailabilityStatus.SDK_UNAVAILABLE]: 'SDK_UNAVAILABLE',
+};
 
-function statusToLabel(code) {
-  const S = RNHC?.SdkAvailabilityStatus || {};
-  for (const [k, v] of Object.entries(S)) if (v === code) return k;
-  if (code === 0) return 'SDK_AVAILABLE';
-  return 'SDK_UNAVAILABLE';
-}
-
-// -----------------------------
-// API
-// -----------------------------
+// ——————————————————————————————
+// Estado legible (siempre responde)
+// ——————————————————————————————
 export async function hcGetStatusDebug() {
   if (Platform.OS !== 'android') return { status: -1, label: 'NOT_ANDROID' };
   try {
-    await ensureInit();
-    if (typeof RNHC.getSdkStatus !== 'function') {
-      return { status: -3, label: 'MODULE_NOT_LINKED' };
-    }
-    const s = await RNHC.getSdkStatus();
-    return { status: s, label: statusToLabel(s) };
-  } catch (e) {
-    console.log('[HC] getSdkStatus error:', e?.message || e);
+    const s = await getSdkStatus();
+    return { status: s, label: statusLabel[s] ?? String(s) };
+  } catch {
     return { status: -2, label: 'STATUS_ERROR' };
   }
 }
 
+// ——————————————————————————————
+// Abrir ajustes HC con fallbacks
+// ——————————————————————————————
 export async function hcOpenSettings() {
   if (Platform.OS !== 'android') return false;
+
   try {
-    if (typeof RNHC.openHealthConnectSettings === 'function') {
-      await RNHC.openHealthConnectSettings();
-      return true;
-    }
-  } catch (e) {
-    console.log('[HC] openHealthConnectSettings error:', e?.message || e);
-  }
+    await openHealthConnectSettings();
+    return true;
+  } catch {}
+
   try {
-    if (typeof RNHC.openHealthConnectDataManagement === 'function') {
-      await RNHC.openHealthConnectDataManagement();
-      return true;
-    }
-  } catch (e) {
-    console.log('[HC] openHealthConnectDataManagement error:', e?.message || e);
-  }
+    await openHealthConnectDataManagement();
+    return true;
+  } catch {}
+
   const pkg = 'com.google.android.apps.healthdata';
-  try { await Linking.openURL(`market://details?id=${pkg}`); return true; } catch {}
-  try { await Linking.openURL(`https://play.google.com/store/apps/details?id=${pkg}`); return true; } catch {}
+  try {
+    await Linking.openURL(`market://details?id=${pkg}`);
+    return true;
+  } catch {}
+  try {
+    await Linking.openURL(`https://play.google.com/store/apps/details?id=${pkg}`);
+    return true;
+  } catch {}
+
   return false;
 }
 
-export async function requestReadPermissions() {
+// ——————————————————————————————
+// Solicitud de permisos (pasos + pulso)
+// ——————————————————————————————
+const HEALTH_PERMS = [
+  { accessType: 'read', recordType: 'Steps' },
+  { accessType: 'read', recordType: 'HeartRate' },
+];
+
+export async function quickSetup() {
   if (Platform.OS !== 'android') return false;
   try {
-    await ensureInit();
-    if (typeof RNHC.requestPermission !== 'function') {
-      console.log('[HC] requestPermission no disponible');
-      return false;
-    }
-    const permissions = [
-      { accessType: 'read', recordType: 'Steps' },
-      { accessType: 'read', recordType: 'HeartRate' },
-    ];
-    const res = await RNHC.requestPermission(permissions);
-    const grantedList = Array.isArray(res) ? res : res?.granted || [];
-    const ok =
-      Array.isArray(grantedList) &&
-      permissions.every((p) =>
-        grantedList.some(
-          (g) =>
-            (g.recordType || g.type) === p.recordType &&
-            (g.accessType || g.access) === p.accessType
-        )
-      );
-    return !!ok;
+    await initialize(); // idempotente
+    const res = await requestPermission(HEALTH_PERMS);
+    // res es un array con los permisos retornados; si vuelve vacío, lo tratamos como no concedido
+    return Array.isArray(res) ? res.length > 0 : !!res;
   } catch (e) {
-    console.log('[HC] requestReadPermissions error:', e?.message || e);
+    console.debug('quickSetup error:', e?.message || e);
     return false;
   }
+}
+
+// ——————————————————————————————
+// Lecturas: Pasos (hoy) y último pulso
+// ——————————————————————————————
+function startOfTodayISO() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+function nowISO() {
+  return new Date().toISOString();
 }
 
 export async function readTodaySteps() {
   if (Platform.OS !== 'android') return { steps: 0 };
   try {
-    await ensureInit();
-    if (typeof RNHC.readRecords !== 'function') {
-      throw new Error('readRecords no disponible');
-    }
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const res = await RNHC.readRecords('Steps', {
-      timeRangeFilter: {
-        operator: 'between',
-        startTime: start.toISOString(),
-        endTime: now.toISOString(),
-      },
-      ascending: true,
+    const records = await readRecords('Steps', {
+      timeRangeFilter: { startTime: startOfTodayISO(), endTime: nowISO() },
     });
-    const list = res?.records || res || [];
-    let total = 0;
-    for (const r of list) {
-      const n = Number(r?.count ?? 0);
-      if (!Number.isNaN(n)) total += n;
-    }
+    // Health Connect Steps tiene propiedad 'count'
+    const total = (records || []).reduce((acc, r) => acc + (r?.count || 0), 0);
     return { steps: total };
   } catch (e) {
-    console.log('[HC] readTodaySteps error:', e?.message || e);
+    // sin permiso o sin datos
     return { steps: 0 };
   }
 }
@@ -136,56 +114,29 @@ export async function readTodaySteps() {
 export async function readLatestHeartRate() {
   if (Platform.OS !== 'android') return { bpm: null, at: null };
   try {
-    await ensureInit();
-    if (typeof RNHC.readRecords !== 'function') {
-      throw new Error('readRecords no disponible');
-    }
-    const now = new Date();
-    const start = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
-    const res = await RNHC.readRecords('HeartRate', {
-      timeRangeFilter: {
-        operator: 'between',
-        startTime: start.toISOString(),
-        endTime: now.toISOString(),
-      },
-      ascending: false,
-      pageSize: 50,
+    const records = await readRecords('HeartRate', {
+      timeRangeFilter: { startTime: startOfTodayISO(), endTime: nowISO() },
+      // Si tu versión soporta "ascending: false, limit: 1" puedes añadirlo.
     });
-    const list = res?.records || res || [];
-    let latest = null;
-    for (const rec of list) {
-      if (Array.isArray(rec?.samples) && rec.samples.length) {
-        for (const s of rec.samples) {
-          const t = new Date(s?.time || s?.startTime || rec?.endTime || rec?.startTime || 0).getTime();
-          if (!Number.isFinite(t)) continue;
-          const bpm = Number(s?.beatsPerMinute ?? s?.bpm ?? rec?.bpm ?? null);
-          if (!Number.isFinite(bpm)) continue;
-          if (!latest || t > latest.t) latest = { bpm, at: new Date(t).toISOString(), t };
-        }
-      } else {
-        const t = new Date(rec?.endTime || rec?.startTime || 0).getTime();
-        const bpm = Number(rec?.bpm ?? null);
-        if (Number.isFinite(t) && Number.isFinite(bpm)) {
-          if (!latest || t > latest.t) latest = { bpm, at: new Date(t).toISOString(), t };
-        }
-      }
-    }
-    return latest ? { bpm: latest.bpm, at: latest.at } : { bpm: null, at: null };
-  } catch (e) {
-    console.log('[HC] readLatestHeartRate error:', e?.message || e);
-    return { bpm: null, at: null };
-  }
-}
+    if (!records || records.length === 0) return { bpm: null, at: null };
 
-export async function quickSetup() {
-  if (Platform.OS !== 'android') return false;
-  try {
-    await ensureInit();
-    // No bloqueamos por el estado; simplemente intentamos pedir permisos.
-    const ok = await requestReadPermissions();
-    return !!ok;
+    // Tomar la última muestra por startTime
+    const last = records.reduce((a, b) => {
+      const atA = new Date(a?.startTime || 0).getTime();
+      const atB = new Date(b?.startTime || 0).getTime();
+      return atB > atA ? b : a;
+    });
+
+    // En HeartRate cada record puede traer samples; si no, usa average
+    let bpm = null;
+    if (Array.isArray(last?.samples) && last.samples.length > 0) {
+      bpm = last.samples[last.samples.length - 1]?.beatsPerMinute ?? null;
+    } else {
+      bpm = last?.beatsPerMinute ?? last?.heartRate?.value ?? null;
+    }
+
+    return { bpm: bpm ?? null, at: last?.startTime ?? null };
   } catch (e) {
-    console.log('[HC] quickSetup error:', e?.message || e);
-    return false;
+    return { bpm: null, at: null };
   }
 }
