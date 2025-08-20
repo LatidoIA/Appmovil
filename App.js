@@ -1,6 +1,6 @@
 // App.js
-import React, { useEffect } from 'react';
-import { View, TouchableOpacity, LogBox, Platform, Linking, Alert } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, TouchableOpacity, LogBox, Platform, Modal, Text, Button, Pressable, AppState } from 'react-native';
 import {
   useFonts,
   Montserrat_400Regular,
@@ -14,9 +14,11 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-import * as IntentLauncher from 'expo-intent-launcher';
 import CustomText from './CustomText';
 import theme from './theme';
+
+// 👇 añadimos la lógica que abre Health Connect (reutiliza tu módulo actual)
+import { hcOpenSettings } from './health';
 
 // (opcional) crash logger temprano; no debe romper el arranque
 try {
@@ -41,6 +43,9 @@ const SETTINGS_KEY = '@latido_settings';
 const STREAK_CNT  = '@streak_count';
 const STREAK_LAST = '@streak_last_open';
 const STREAK_BEST = '@streak_best';
+
+// Onboarding HC (solo primera vez)
+const ONBOARD_HC_KEY = '@onboard_hc_done';
 
 function dateOnlyStr(d = new Date()) {
   const y = d.getFullYear();
@@ -106,7 +111,6 @@ async function setupNotificationsDeferred() {
         lightColor: '#FF231F7C'
       });
     } else {
-      // iOS: pedir permisos de manera educada (no al milisegundo 0 de la app)
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') {
         console.debug('Notifs: permiso iOS no concedido');
@@ -116,73 +120,6 @@ async function setupNotificationsDeferred() {
     console.debug('setupNotifications error:', e?.message || e);
   }
 }
-
-/** ---- UTILIDADES HEALTH CONNECT (Android) ---- */
-async function openHealthConnectSettings() {
-  if (Platform.OS !== 'android') return;
-  // 1) Intent directo a los ajustes de Health Connect
-  try {
-    // Acción pública de ajustes de Health Connect
-    await IntentLauncher.startActivityAsync('androidx.health.ACTION_HEALTH_CONNECT_SETTINGS');
-    return;
-  } catch {}
-  // 2) Fallback: pantalla de detalles de la app de Health Connect
-  try {
-    await IntentLauncher.startActivityAsync(
-      IntentLauncher.ActivityAction.APPLICATION_DETAILS_SETTINGS,
-      { data: 'package:com.google.android.apps.healthdata' }
-    );
-    return;
-  } catch {}
-  // 3) Último recurso: abrir Play Store
-  try {
-    await Linking.openURL('market://details?id=com.google.android.apps.healthdata');
-  } catch {
-    await Linking.openURL('https://play.google.com/store/apps/details?id=com.google.android.apps.healthdata');
-  }
-}
-
-async function ensureHealthPermissions() {
-  if (Platform.OS !== 'android') {
-    Alert.alert('Solo Android', 'Health Connect solo aplica a Android.');
-    return;
-  }
-  try {
-    // Importación dinámica para no romper si el módulo no está presente
-    const HC = await import('react-native-health-connect');
-    const { isAvailable, initialize, requestPermission } = HC;
-
-    const available = await isAvailable();
-    if (!available) {
-      console.debug('[SALUD] Health Connect no disponible: abriendo ajustes…');
-      await openHealthConnectSettings();
-      return;
-    }
-
-    await initialize();
-
-    // Define aquí los tipos que realmente usas
-    const permissions = [
-      { accessType: 'read', recordType: 'HeartRate' },
-      { accessType: 'read', recordType: 'Steps' },
-      // añade más si tu app los usa, p.ej. ActiveCaloriesBurned, Distance, BloodPressure, etc.
-    ];
-
-    const granted = await requestPermission(permissions);
-    const allOk = Array.isArray(granted) && granted.length > 0;
-    if (allOk) {
-      Alert.alert('Permisos', 'Permisos de Health Connect concedidos.');
-    } else {
-      Alert.alert('Permisos', 'Revisa permisos en Ajustes de Health Connect.');
-      await openHealthConnectSettings();
-    }
-  } catch (e) {
-    console.debug('[SALUD] permisos error:', e?.message || String(e));
-    // Si el módulo nativo no está disponible o falla, abre ajustes igualmente
-    await openHealthConnectSettings();
-  }
-}
-/** ---- FIN UTILIDADES HEALTH CONNECT ---- */
 
 function MainTabs() {
   const navigation = useNavigation();
@@ -243,6 +180,7 @@ function MainTabs() {
         headerTitle: '',
         headerStyle: { backgroundColor: theme.colors.surface },
         headerTintColor: theme.colors.textPrimary,
+        // 👉 mantenemos tus iconos originales; la lógica de permisos de HC ya NO va aquí
         headerRight: () => (
           <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: theme.spacing.md }}>
             <View style={{ position: 'relative', marginHorizontal: theme.spacing.sm }}>
@@ -271,17 +209,9 @@ function MainTabs() {
               )}
             </View>
 
-            {/* Botón de emergencia (lo tenías) */}
             <TouchableOpacity onPress={triggerEmergency} style={{ marginHorizontal: theme.spacing.sm }}>
               <Ionicons name="warning" size={24} color={theme.colors.error} />
             </TouchableOpacity>
-
-            {/* NUEVO: Botón Health (pide permisos / abre ajustes) */}
-            <TouchableOpacity onPress={ensureHealthPermissions} style={{ marginHorizontal: theme.spacing.sm }}>
-              <Ionicons name="fitness" size={24} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
-
-            {/* Perfil y ajustes (lo tuyo) */}
             <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={{ marginHorizontal: theme.spacing.sm }}>
               <Ionicons name="person-circle" size={24} color={theme.colors.textSecondary} />
             </TouchableOpacity>
@@ -320,51 +250,105 @@ function MainTabs() {
   );
 }
 
+function HealthOnboardingModal({ visible, onClose }) {
+  const [busy, setBusy] = useState(false);
+
+  async function handleGrant() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await hcOpenSettings(); // abre Health Connect
+      // Marcamos onboarding como completado: no volver a mostrar
+      await AsyncStorage.setItem(ONBOARD_HC_KEY, '1');
+      onClose?.();
+    } catch (e) {
+      console.debug('[HC Onboarding] open error:', e?.message || e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={{
+        flex: 1, backgroundColor: 'rgba(0,0,0,0.35)',
+        alignItems: 'center', justifyContent: 'center', padding: 24
+      }}>
+        <View style={{
+          width: '100%',
+          maxWidth: 420,
+          backgroundColor: '#fff',
+          borderRadius: 16,
+          padding: 18,
+          shadowColor: '#000',
+          shadowOpacity: 0.15,
+          shadowRadius: 12,
+          elevation: 4
+        }}>
+          <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 6 }}>Permisos de Salud</Text>
+          <Text style={{ fontSize: 14, opacity: 0.9, marginBottom: 14 }}>
+            Para mostrar tus pasos y pulso, Latido necesita permisos en Health Connect.
+          </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
+            <Pressable onPress={onClose} disabled={busy} style={{ paddingVertical: 8, paddingHorizontal: 12 }}>
+              <Text style={{ color: '#555', fontWeight: '600' }}>Ahora no</Text>
+            </Pressable>
+            <Pressable
+              onPress={handleGrant}
+              disabled={busy}
+              style={{
+                paddingVertical: 10, paddingHorizontal: 14,
+                borderRadius: 10, backgroundColor: '#1e88e5', opacity: busy ? 0.6 : 1
+              }}
+            >
+              <Text style={{ color: 'white', fontWeight: '700' }}>
+                {busy ? 'Abriendo…' : 'Conceder permisos'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function App() {
   const [fontsLoaded] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_700Bold });
+
+  // Modal de onboarding Health Connect (solo primer arranque en Android)
+  const [showHCModal, setShowHCModal] = useState(false);
+  const appState = useRef(AppState.currentState);
 
   useEffect(() => {
     if (fontsLoaded) {
       SplashScreen.hideAsync().catch(() => {});
-      // Inicializa notificaciones **después** del primer render estable
       const t = setTimeout(() => { setupNotificationsDeferred(); }, 1200);
       return () => clearTimeout(t);
     }
   }, [fontsLoaded]);
 
-  // Auto-actualiza racha al iniciar
   useEffect(() => {
     (async () => {
-      const today = dateOnlyStr(new Date());
       try {
-        const [cr, lr, br] = await Promise.all([
-          AsyncStorage.getItem(STREAK_CNT),
-          AsyncStorage.getItem(STREAK_LAST),
-          AsyncStorage.getItem(STREAK_BEST)
-        ]);
-
-        let cnt  = parseInt(cr || '0', 10) || 0;
-        let best = parseInt(br || '0', 10) || 0;
-        const last = lr || null;
-
-        if (!last) {
-          cnt = 1;
-        } else {
-          const diff = daysBetweenUTC(last, today);
-          if (diff === 1) cnt += 1;
-          else if (diff > 1) cnt = 1;
-        }
-        if (cnt > best) best = cnt;
-
-        await AsyncStorage.multiSet([
-          [STREAK_CNT,  String(cnt)],
-          [STREAK_LAST, today],
-          [STREAK_BEST, String(best)]
-        ]);
-      } catch (e) {
-        console.debug('Streak auto-update error:', e?.message || e);
-      }
+        if (Platform.OS !== 'android') return;
+        const done = await AsyncStorage.getItem(ONBOARD_HC_KEY);
+        if (!done) setShowHCModal(true);
+      } catch {}
     })();
+  }, []);
+
+  // Si el usuario regresó desde los ajustes, no necesitamos hacer nada aquí;
+  // la pestaña Salud se refresca sola con su propia lógica al enfocarse.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      appState.current = next;
+    });
+    return () => sub.remove();
   }, []);
 
   if (!fontsLoaded) return null;
@@ -381,14 +365,24 @@ export default function App() {
   };
 
   return (
-    <NavigationContainer theme={navTheme} onReady={() => {/* hook si quisieras inicializar algo aquí */}}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Main"        component={MainTabs} />
-        <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
-        <Stack.Screen name="Streak"      component={StreakScreenLazy} />
-        <Stack.Screen name="Settings"    component={SettingsScreenLazy} />
-        <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <>
+      <NavigationContainer theme={navTheme} onReady={() => {/* hook si quisieras inicializar algo aquí */}}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Main"        component={MainTabs} />
+          <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
+          <Stack.Screen name="Streak"      component={StreakScreenLazy} />
+          <Stack.Screen name="Settings"    component={SettingsScreenLazy} />
+          <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
+        </Stack.Navigator>
+      </NavigationContainer>
+
+      {/* Modal pequeño de permisos de Health (solo primera vez) */}
+      {Platform.OS === 'android' && (
+        <HealthOnboardingModal
+          visible={showHCModal}
+          onClose={() => setShowHCModal(false)}
+        />
+      )}
+    </>
   );
 }
