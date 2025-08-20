@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Button, AppState } from 'react-native';
 import {
+  ensureInitialized,
   hcGetStatusDebug,
   readTodaySteps,
   readLatestHeartRate,
@@ -13,6 +14,7 @@ export default function SaludScreen() {
 
   async function refreshStatus() {
     try {
+      await ensureInitialized();
       const s = await hcGetStatusDebug();
       setStatusLabel(`${s.label} (${s.status})`);
     } catch {
@@ -21,34 +23,33 @@ export default function SaludScreen() {
   }
 
   async function fetchData() {
-    try {
-      const [stepsRes, hrRes] = await Promise.allSettled([
-        readTodaySteps(),
-        readLatestHeartRate(),
-      ]);
+    await ensureInitialized();
+    const [stepsRes, hrRes] = await Promise.allSettled([
+      readTodaySteps(),
+      readLatestHeartRate(),
+    ]);
 
-      const steps =
-        stepsRes.status === 'fulfilled' && stepsRes.value
-          ? stepsRes.value.steps ?? 0
-          : 0;
+    const steps =
+      stepsRes.status === 'fulfilled' && stepsRes.value
+        ? stepsRes.value.steps ?? 0
+        : 0;
 
-      const hr =
-        hrRes.status === 'fulfilled' && hrRes.value
-          ? { bpm: hrRes.value.bpm ?? null, at: hrRes.value.at ?? null }
-          : { bpm: null, at: null };
+    const hr =
+      hrRes.status === 'fulfilled' && hrRes.value
+        ? { bpm: hrRes.value.bpm ?? null, at: hrRes.value.at ?? null }
+        : { bpm: null, at: null };
 
-      setData({ steps, bpm: hr.bpm, at: hr.at });
-    } catch {
-      setData({ steps: 0, bpm: null, at: null });
-    }
+    setData({ steps, bpm: hr.bpm, at: hr.at });
   }
 
-  // Refrescar al volver de Health Connect (o al volver a la app)
+  // Refrescar al volver de Health Connect (con pequeña espera)
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (st) => {
+    const sub = AppState.addEventListener('change', async (st) => {
       if (st === 'active') {
-        refreshStatus();
-        fetchData();
+        // da tiempo a que App.js termine quickSetup
+        await new Promise((r) => setTimeout(r, 400));
+        await refreshStatus();
+        await fetchData();
       }
     });
     return () => sub.remove();
@@ -56,13 +57,15 @@ export default function SaludScreen() {
 
   // Carga inicial
   useEffect(() => {
-    refreshStatus();
-    fetchData();
+    (async () => {
+      await refreshStatus();
+      await fetchData();
+    })();
   }, []);
 
   return (
     <View style={{ flex: 1, padding: 16 }}>
-      {/* 🔹 Este bloque es pequeño y no bloquea tu UI original */}
+      {/* Bloque compacto (no bloquea tu UI de métricas) */}
       <View style={{ alignItems: 'center', marginTop: 24, marginBottom: 12 }}>
         <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 8 }}>
           Lecturas recientes
@@ -79,8 +82,8 @@ export default function SaludScreen() {
         <Button title="Actualizar datos" onPress={fetchData} />
       </View>
 
-      {/* 🔸 Coloca aquí (o debajo) tus métricas y accesorios originales */}
-      {/* ... tus componentes de Salud existentes ... */}
+      {/* Aquí mantén todas tus otras métricas/accesorios de siempre */}
+      {/* ... */}
     </View>
   );
 }
