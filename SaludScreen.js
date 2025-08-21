@@ -1,4 +1,5 @@
-// SaludScreen.js (RAÍZ) — corregido paréntesis de useFocusEffect
+// SaludScreen.js (RAÍZ) — muestra hora y origen de cada métrica; busca sample HR más reciente global
+
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, Button, ActivityIndicator, AppState } from 'react-native';
 import {
@@ -13,13 +14,23 @@ import {
 } from './health';
 import { useFocusEffect } from '@react-navigation/native';
 
+function fmtTime(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return iso;
+  }
+}
+
 export default function SaludScreen() {
   const [loading, setLoading] = useState(false);
   const [statusLabel, setStatusLabel] = useState('');
   const [granted, setGranted] = useState(false);
   const [available, setAvailable] = useState(false);
-  const [data, setData] = useState(null); // { steps, bpm, at }
-  const [grantedList, setGrantedList] = useState([]); // debug mínimo
+  const [data, setData] = useState(null); // { steps, bpm, hrAt, hrOrigin, stepOrigins, stepsAsOf }
+  const [grantedList, setGrantedList] = useState([]); // debug
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -48,17 +59,20 @@ export default function SaludScreen() {
         readTodaySteps(),
         readLatestHeartRate(),
       ]);
-      const steps =
-        stepsRes.status === 'fulfilled' && stepsRes.value
-          ? stepsRes.value.steps ?? 0
-          : 0;
-      const hr =
-        hrRes.status === 'fulfilled' && hrRes.value
-          ? { bpm: hrRes.value.bpm ?? null, at: hrRes.value.at ?? null }
-          : { bpm: null, at: null };
 
-      console.log('[SALUD] data:', { steps, hr });
-      setData({ steps, bpm: hr.bpm, at: hr.at });
+      const stepsBlock = stepsRes.status === 'fulfilled' && stepsRes.value ? stepsRes.value : null;
+      const hrBlock = hrRes.status === 'fulfilled' && hrRes.value ? hrRes.value : null;
+
+      const steps = stepsBlock?.steps ?? 0;
+      const stepOrigins = stepsBlock?.origins ?? [];
+      const stepsAsOf = stepsBlock?.asOf ?? null;
+
+      const bpm = hrBlock?.bpm ?? null;
+      const hrAt = hrBlock?.at ?? null;
+      const hrOrigin = hrBlock?.origin ?? null;
+
+      console.log('[SALUD] data:', { steps, stepOrigins, stepsAsOf, bpm, hrAt, hrOrigin });
+      setData({ steps, stepOrigins, stepsAsOf, bpm, hrAt, hrOrigin });
     } catch (e) {
       console.log('[SALUD] fetchData error:', e);
       setData(null);
@@ -85,7 +99,7 @@ export default function SaludScreen() {
       })();
       return () => { active = false; };
     }, [fullRefresh])
-  ); // <- AQUÍ estaba faltando este paréntesis de cierre
+  );
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (st) => {
@@ -101,10 +115,10 @@ export default function SaludScreen() {
     console.log('[SALUD] pedir permisos');
     setLoading(true);
     try {
-      const ok = await quickSetup(); // abre sheet de permisos
+      const ok = await quickSetup();
       console.log('[SALUD] quickSetup =>', ok);
 
-      // Refresco post-permisos con polling corto
+      // Poll corto y refresco
       for (let i = 0; i < 3; i++) {
         const okNow = await refreshPermissions();
         if (okNow) break;
@@ -189,11 +203,19 @@ export default function SaludScreen() {
               <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 8 }}>
                 Lecturas recientes
               </Text>
-              <Text style={{ fontSize: 16, marginBottom: 4 }}>
+
+              <Text style={{ fontSize: 16, marginBottom: 2 }}>
                 Último pulso: {data?.bpm != null ? `${data.bpm} bpm` : '—'}
               </Text>
-              <Text style={{ fontSize: 16, marginBottom: 16 }}>
+              <Text style={{ fontSize: 12, opacity: 0.7, marginBottom: 12 }}>
+                Hora: {fmtTime(data?.hrAt)}{data?.hrOrigin ? `  ·  Origen: ${data.hrOrigin}` : ''}
+              </Text>
+
+              <Text style={{ fontSize: 16, marginBottom: 2 }}>
                 Pasos (hoy): {data?.steps ?? 0}
+              </Text>
+              <Text style={{ fontSize: 12, opacity: 0.7, marginBottom: 16 }}>
+                Orígenes: {data?.stepOrigins?.length ? data.stepOrigins.join(', ') : '—'}
               </Text>
 
               <Button
@@ -215,7 +237,7 @@ export default function SaludScreen() {
                 }}
               />
 
-              {/* Debug mínimo */}
+              {/* Debug */}
               <View style={{ marginTop: 16, opacity: 0.7 }}>
                 <Text style={{ fontSize: 12 }}>
                   Concedidos: {grantedList.length ? grantedList.join(', ') : '—'}
