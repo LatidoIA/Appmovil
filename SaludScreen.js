@@ -24,7 +24,8 @@ export default function SaludScreen() {
       const s = await hcGetStatusDebug();
       console.log('[SALUD] status:', s);
       setStatusLabel(`${s.label} (${s.status})`);
-      setAvailable(s.label === 'SDK_AVAILABLE');
+      // robustez: acepta label o status === 0 (SDK_AVAILABLE)
+      setAvailable(s.label === 'SDK_AVAILABLE' || s.status === 0);
     } catch (e) {
       console.log('[SALUD] status error:', e);
       setStatusLabel('STATUS_ERROR');
