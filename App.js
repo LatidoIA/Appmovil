@@ -1,6 +1,6 @@
 // App.js
 import React, { useEffect, useState } from 'react';
-import { View, TouchableOpacity, LogBox, Platform, Modal, Text, Pressable, ActivityIndicator } from 'react-native';
+import { View, TouchableOpacity, LogBox, Platform, Modal, Text, Pressable } from 'react-native';
 import {
   useFonts,
   Montserrat_400Regular,
@@ -17,7 +17,7 @@ import * as Notifications from 'expo-notifications';
 import CustomText from './CustomText';
 import theme from './theme';
 
-import { quickSetup, hcOpenSettings, isPermissionGranted, hcGetStatusDebug } from './src/health';
+import { hcGetStatusDebug, quickSetup, hcOpenSettings } from './src/health';
 
 // (opcional) crash logger temprano; no debe romper el arranque
 try {
@@ -42,7 +42,9 @@ const SETTINGS_KEY = '@latido_settings';
 const STREAK_CNT  = '@streak_count';
 const STREAK_LAST = '@streak_last_open';
 const STREAK_BEST = '@streak_best';
-const HC_MODAL_DISMISSED = '@hc_modal_dismissed';
+
+// Wizard (primer uso) key
+const HC_WIZ_DONE = '@hc_wizard_done_v2';
 
 function dateOnlyStr(d = new Date()) {
   const y = d.getFullYear();
@@ -247,12 +249,71 @@ function MainTabs() {
   );
 }
 
+// ---- Wizard modal de permisos (primer uso) ----
+function HealthWizardModal({ visible, onClose, onGranted }) {
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
+      <View style={{
+        flex: 1, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: 'rgba(0,0,0,0.35)'
+      }}>
+        <View style={{
+          width: '86%', borderRadius: 16, padding: 16,
+          backgroundColor: theme.colors.surface, borderColor: theme.colors.outline, borderWidth: 1
+        }}>
+          <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 6, color: theme.colors.textPrimary }}>
+            Permitir Salud
+          </Text>
+          <Text style={{ fontSize: 14, color: theme.colors.textSecondary, marginBottom: 16 }}>
+            Para mostrar tus pasos y frecuencia cardíaca, permite el acceso en Health Connect.
+          </Text>
+
+          <Pressable
+            disabled={busy}
+            onPress={async () => {
+              setBusy(true);
+              try {
+                // Lógica del botón superior movida aquí
+                const ok = await quickSetup();
+                if (ok) {
+                  try { await AsyncStorage.setItem(HC_WIZ_DONE, '1'); } catch {}
+                  onGranted?.();
+                  onClose?.();
+                } else {
+                  // si el flujo directo no pudo, abre ajustes como refuerzo
+                  await hcOpenSettings();
+                }
+              } catch (e) {
+                // como refuerzo abre ajustes
+                try { await hcOpenSettings(); } catch {}
+              } finally {
+                setBusy(false);
+              }
+            }}
+            style={{
+              paddingVertical: 12, borderRadius: 12, alignItems: 'center',
+              backgroundColor: busy ? theme.colors.outline : theme.colors.primary
+            }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '600' }}>
+              {busy ? 'Abriendo…' : 'Otorgar permisos'}
+            </Text>
+          </Pressable>
+
+          <Pressable onPress={onClose} style={{ paddingVertical: 10, alignItems: 'center', marginTop: 6 }}>
+            <Text style={{ color: theme.colors.textSecondary }}>Ahora no</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function App() {
   const [fontsLoaded] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_700Bold });
-
-  // --- Estado del modal HC
-  const [showHcModal, setShowHcModal] = useState(false);
-  const [modalBusy, setModalBusy] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
 
   useEffect(() => {
     if (fontsLoaded) {
@@ -262,25 +323,6 @@ export default function App() {
       return () => clearTimeout(t);
     }
   }, [fontsLoaded]);
-
-  // Mostrar modal sólo la primera vez y sólo en Android si faltan permisos
-  useEffect(() => {
-    (async () => {
-      try {
-        if (Platform.OS !== 'android') return;
-        const dismissed = await AsyncStorage.getItem(HC_MODAL_DISMISSED);
-        if (dismissed) return;
-
-        const status = await hcGetStatusDebug();
-        const granted = await isPermissionGranted();
-
-        // Mostrar si el SDK existe y NO tenemos permisos
-        if (status.label !== 'NOT_ANDROID' && !granted) {
-          setShowHcModal(true);
-        }
-      } catch {}
-    })();
-  }, []);
 
   // Auto-actualiza racha al iniciar
   useEffect(() => {
@@ -317,6 +359,25 @@ export default function App() {
     })();
   }, []);
 
+  // Mostrar wizard una sola vez si hace falta
+  useEffect(() => {
+    (async () => {
+      if (Platform.OS !== 'android') return;
+      try {
+        const done = await AsyncStorage.getItem(HC_WIZ_DONE);
+        if (done === '1') return;
+        const s = await hcGetStatusDebug();
+        // Si el SDK está disponible o requiere activarse/instalarse, mostramos el wizard
+        if (s.status === 0 /* SDK_AVAILABLE */ ||
+            s.label === 'PROVIDER_UPDATE_REQUIRED' ||
+            s.label === 'PROVIDER_DISABLED' ||
+            s.label === 'PROVIDER_NOT_INSTALLED') {
+          setShowWizard(true);
+        }
+      } catch {}
+    })();
+  }, []);
+
   if (!fontsLoaded) return null;
 
   const navTheme = {
@@ -332,7 +393,7 @@ export default function App() {
 
   return (
     <>
-      <NavigationContainer theme={navTheme} onReady={() => {/* hook si quisieras inicializar algo aquí */}}>
+      <NavigationContainer theme={navTheme}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Main"        component={MainTabs} />
           <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
@@ -342,63 +403,12 @@ export default function App() {
         </Stack.Navigator>
       </NavigationContainer>
 
-      {/* Modal pequeño para permisos de Health (se muestra 1 sola vez) */}
-      <Modal
-        visible={showHcModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowHcModal(false)}
-      >
-        <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.35)', justifyContent:'center', alignItems:'center', padding:24 }}>
-          <View style={{ width:'100%', maxWidth:420, borderRadius:16, backgroundColor:'#fff', padding:20 }}>
-            <Text style={{ fontSize:18, fontWeight:'700', color:'#111', marginBottom:8 }}>Permisos de Salud</Text>
-            <Text style={{ fontSize:14, color:'#333', marginBottom:16 }}>
-              Para mostrar tus pasos y pulso, Latido necesita permisos en Health Connect.
-            </Text>
-
-            <View style={{ flexDirection:'row', justifyContent:'flex-end', gap:12 }}>
-              <Pressable
-                disabled={modalBusy}
-                onPress={async () => {
-                  await AsyncStorage.setItem(HC_MODAL_DISMISSED, '1');
-                  setShowHcModal(false);
-                }}
-                style={{ paddingHorizontal:14, paddingVertical:10 }}
-              >
-                <Text style={{ color:'#555', fontWeight:'600' }}>Ahora no</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={async () => {
-                  try {
-                    setModalBusy(true);
-                    const ok = await quickSetup();
-                    if (!ok) {
-                      // si el wizard no otorga, abrimos ajustes de HC
-                      await hcOpenSettings();
-                    }
-                    await AsyncStorage.setItem(HC_MODAL_DISMISSED, '1');
-                    setShowHcModal(false);
-                  } catch (e) {
-                    console.debug('[HC Modal] error:', e?.message || e);
-                  } finally {
-                    setModalBusy(false);
-                  }
-                }}
-                style={{
-                  paddingHorizontal:16, paddingVertical:10,
-                  backgroundColor:'#1E88E5', borderRadius:10, minWidth:140, alignItems:'center'
-                }}
-              >
-                {modalBusy
-                  ? <ActivityIndicator color="#fff" />
-                  : <Text style={{ color:'#fff', fontWeight:'700' }}>Conceder permisos</Text>
-                }
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* Wizard pequeño de permisos (primer uso) */}
+      <HealthWizardModal
+        visible={showWizard}
+        onClose={() => setShowWizard(false)}
+        onGranted={() => {}}
+      />
     </>
   );
 }
