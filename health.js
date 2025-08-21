@@ -1,12 +1,15 @@
-// health.js (RAÍZ)
+// health.js (RAÍZ) — estrategia nueva: no usamos hasPermissions(); verificamos con getGrantedPermissions()
+// + polling breve tras requestPermission; Steps con aggregateRecord (fallback a raw)
+
 import { Platform, Linking } from 'react-native';
 import {
   initialize,
   SdkAvailabilityStatus,
   getSdkStatus,
   requestPermission,
-  hasPermissions,
+  getGrantedPermissions,
   readRecords,
+  aggregateRecord,
   openHealthConnectSettings,
   openHealthConnectDataManagement,
 } from 'react-native-health-connect';
@@ -26,7 +29,7 @@ const statusLabel = {
   [SdkAvailabilityStatus.SDK_UNAVAILABLE]: 'SDK_UNAVAILABLE',
 };
 
-// Init único para evitar estados inconsistentes
+// Init único
 let _inited = false;
 async function ensureInit() {
   if (_inited) return;
@@ -34,6 +37,16 @@ async function ensureInit() {
   _inited = true;
 }
 
+// Utils
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function startOfTodayIso() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return start.toISOString();
+}
+
+// ---- ESTADO SDK / SETTINGS ----
 export async function hcGetStatusDebug() {
   if (Platform.OS !== 'android') return { status: -1, label: 'NOT_ANDROID' };
   try {
@@ -61,23 +74,40 @@ export async function hcOpenSettings() {
   return false;
 }
 
-export async function hasAllPermissions() {
-  if (Platform.OS !== 'android') return false;
+// ---- PERMISOS (estrategia nueva) ----
+export async function getGrantedList() {
+  if (Platform.OS !== 'android') return [];
+  await ensureInit();
   try {
-    await ensureInit();
-    return await hasPermissions(PERMS);
+    const list = await getGrantedPermissions();
+    // normalizamos a "recordType:accessType"
+    return (list || []).map(p => `${p.recordType}:${p.accessType}`);
   } catch {
-    return false;
+    return [];
   }
+}
+
+export function areAllGranted(grantedList) {
+  const need = PERMS.map(p => `${p.recordType}:${p.accessType}`);
+  return need.every(x => grantedList.includes(x));
+}
+
+export async function hasAllPermissions() {
+  const grantedList = await getGrantedList();
+  return areAllGranted(grantedList);
 }
 
 export async function requestAllPermissions() {
   if (Platform.OS !== 'android') return false;
-  try {
-    await ensureInit();
-    await requestPermission(PERMS);
-  } catch {}
-  return hasAllPermissions();
+  await ensureInit();
+  try { await requestPermission(PERMS); } catch {}
+  // Poll 3 veces (hasta ~1.2s) para esperar propagación
+  for (let i = 0; i < 3; i++) {
+    const ok = await hasAllPermissions();
+    if (ok) return true;
+    await sleep(400);
+  }
+  return false;
 }
 
 export async function quickSetup() {
@@ -97,31 +127,44 @@ export async function quickSetup() {
 }
 
 // ---- LECTURAS ----
-
 export async function readTodaySteps() {
-  if (Platform.OS !== 'android') return { steps: 0 };
+  if (Platform.OS !== 'android') return { steps: 0, source: 'na' };
+  await ensureInit();
+  const start = startOfTodayIso();
+  const end = new Date().toISOString();
+
+  // 1) Intento agregado (preferido)
   try {
-    await ensureInit();
-    const end = new Date();
-    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const agg = await aggregateRecord({
+      recordType: 'Steps',
+      timeRangeFilter: { operator: 'between', startTime: start, endTime: end },
+    });
+    const steps =
+      agg?.count ??
+      agg?.countTotal ??
+      agg?.steps ??
+      null;
+    if (typeof steps === 'number') return { steps, source: 'aggregate' };
+  } catch (e) {
+    // caemos a raw
+  }
+
+  // 2) Fallback raw
+  try {
     const { records = [] } = await readRecords('Steps', {
-      timeRangeFilter: {
-        operator: 'between',
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-      },
+      timeRangeFilter: { operator: 'between', startTime: start, endTime: end },
     });
     const total = records.reduce((sum, r) => sum + (r?.count ?? r?.steps ?? 0), 0);
-    return { steps: total };
+    return { steps: total, source: 'raw' };
   } catch {
-    return { steps: 0 };
+    return { steps: 0, source: 'error' };
   }
 }
 
 export async function readLatestHeartRate() {
   if (Platform.OS !== 'android') return { bpm: null, at: null };
+  await ensureInit();
   try {
-    await ensureInit();
     const end = new Date();
     const start = new Date(end.getTime() - 1000 * 60 * 60 * 48); // últimas 48h
     const { records = [] } = await readRecords('HeartRate', {
@@ -130,7 +173,7 @@ export async function readLatestHeartRate() {
         startTime: start.toISOString(),
         endTime: end.toISOString(),
       },
-      ascendingOrder: false, // clave correcta
+      ascendingOrder: false,
       pageSize: 1,
     });
 
