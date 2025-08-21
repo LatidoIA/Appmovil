@@ -1,4 +1,4 @@
-// health.js
+// health.js (RAÍZ)
 import { Platform, Linking } from 'react-native';
 import {
   SdkAvailabilityStatus,
@@ -37,17 +37,8 @@ export async function hcGetStatusDebug() {
 
 export async function hcOpenSettings() {
   if (Platform.OS !== 'android') return false;
-  // 1) Ajustes específicos de HC
-  try {
-    await openHealthConnectSettings();
-    return true;
-  } catch {}
-  // 2) Gestión de datos (fallback)
-  try {
-    await openHealthConnectDataManagement();
-    return true;
-  } catch {}
-  // 3) Tienda
+  try { await openHealthConnectSettings(); return true; } catch {}
+  try { await openHealthConnectDataManagement(); return true; } catch {}
   const pkg = 'com.google.android.apps.healthdata';
   try { await Linking.openURL(`market://details?id=${pkg}`); return true; } catch {}
   try { await Linking.openURL(`https://play.google.com/store/apps/details?id=${pkg}`); return true; } catch {}
@@ -56,19 +47,12 @@ export async function hcOpenSettings() {
 
 export async function hasAllPermissions() {
   if (Platform.OS !== 'android') return false;
-  try {
-    return await hasPermissions(PERMS);
-  } catch {
-    return false;
-  }
+  try { return await hasPermissions(PERMS); } catch { return false; }
 }
 
 export async function requestAllPermissions() {
   if (Platform.OS !== 'android') return false;
-  try {
-    await requestPermission(PERMS);
-  } catch {}
-  // siempre confirmamos con hasAllPermissions
+  try { await requestPermission(PERMS); } catch {}
   return hasAllPermissions();
 }
 
@@ -77,11 +61,9 @@ export async function quickSetup() {
   try {
     const s = await getSdkStatus();
     if (s !== SdkAvailabilityStatus.SDK_AVAILABLE) {
-      // si no está disponible, abrimos ajustes y devolvemos false
       try { await openHealthConnectSettings(); } catch {}
       return false;
     }
-    // Pedimos permisos y confirmamos
     const ok = await requestAllPermissions();
     return !!ok;
   } catch {
@@ -132,7 +114,6 @@ export async function readLatestHeartRate() {
       const last = rec.samples[rec.samples.length - 1];
       return { bpm: last?.beatsPerMinute ?? last?.bpm ?? null, at: last?.time ?? rec?.endTime ?? null };
     }
-    // algunos proveedores dejan el valor plano
     return { bpm: rec?.beatsPerMinute ?? rec?.bpm ?? null, at: rec?.endTime ?? null };
   } catch {
     return { bpm: null, at: null };
