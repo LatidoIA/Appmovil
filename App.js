@@ -17,7 +17,8 @@ import * as Notifications from 'expo-notifications';
 import CustomText from './CustomText';
 import theme from './theme';
 
-import { hcGetStatusDebug, quickSetup, hcOpenSettings } from './src/health';
+// 👇 CORREGIDO: si tu health.js está en la raíz
+import { hcGetStatusDebug, quickSetup, hcOpenSettings } from './health';
 
 // (opcional) crash logger temprano; no debe romper el arranque
 try {
@@ -93,7 +94,6 @@ import { useEmergency } from './useEmergency';
 /** Inicialización diferida de notificaciones (después del primer render estable) */
 async function setupNotificationsDeferred() {
   try {
-    // Handler para mostrar alertas en foreground
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
@@ -110,7 +110,6 @@ async function setupNotificationsDeferred() {
         lightColor: '#FF231F7C'
       });
     } else {
-      // iOS: pedir permisos de manera educada (no al milisegundo 0 de la app)
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') {
         console.debug('Notifs: permiso iOS no concedido');
@@ -127,14 +126,12 @@ function MainTabs() {
   const [streakCount, setStreakCount] = React.useState(0);
   const [settings, setSettings] = React.useState({ emergencyTestMode: false });
 
-  // cargar perfil
   useEffect(() => {
     AsyncStorage.getItem('@latido_profile')
       .then(raw => { if (raw) setProfile(JSON.parse(raw)); })
       .catch(() => {});
   }, []);
 
-  // cargar racha
   const loadStreak = React.useCallback(async () => {
     try {
       const cnt = await AsyncStorage.getItem(STREAK_CNT);
@@ -142,7 +139,6 @@ function MainTabs() {
     } catch (e) { console.debug('Load streak badge error:', e?.message || e); }
   }, []);
 
-  // cargar settings (para testMode)
   const loadSettings = React.useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(SETTINGS_KEY);
@@ -275,18 +271,15 @@ function HealthWizardModal({ visible, onClose, onGranted }) {
             onPress={async () => {
               setBusy(true);
               try {
-                // Lógica del botón superior movida aquí
                 const ok = await quickSetup();
                 if (ok) {
                   try { await AsyncStorage.setItem(HC_WIZ_DONE, '1'); } catch {}
                   onGranted?.();
                   onClose?.();
                 } else {
-                  // si el flujo directo no pudo, abre ajustes como refuerzo
                   await hcOpenSettings();
                 }
               } catch (e) {
-                // como refuerzo abre ajustes
                 try { await hcOpenSettings(); } catch {}
               } finally {
                 setBusy(false);
@@ -318,13 +311,11 @@ export default function App() {
   useEffect(() => {
     if (fontsLoaded) {
       SplashScreen.hideAsync().catch(() => {});
-      // Inicializa notificaciones **después** del primer render estable
       const t = setTimeout(() => { setupNotificationsDeferred(); }, 1200);
       return () => clearTimeout(t);
     }
   }, [fontsLoaded]);
 
-  // Auto-actualiza racha al iniciar
   useEffect(() => {
     (async () => {
       const today = dateOnlyStr(new Date());
@@ -359,7 +350,6 @@ export default function App() {
     })();
   }, []);
 
-  // Mostrar wizard una sola vez si hace falta
   useEffect(() => {
     (async () => {
       if (Platform.OS !== 'android') return;
@@ -367,8 +357,7 @@ export default function App() {
         const done = await AsyncStorage.getItem(HC_WIZ_DONE);
         if (done === '1') return;
         const s = await hcGetStatusDebug();
-        // Si el SDK está disponible o requiere activarse/instalarse, mostramos el wizard
-        if (s.status === 0 /* SDK_AVAILABLE */ ||
+        if (s.status === 0 ||
             s.label === 'PROVIDER_UPDATE_REQUIRED' ||
             s.label === 'PROVIDER_DISABLED' ||
             s.label === 'PROVIDER_NOT_INSTALLED') {
@@ -403,7 +392,6 @@ export default function App() {
         </Stack.Navigator>
       </NavigationContainer>
 
-      {/* Wizard pequeño de permisos (primer uso) */}
       <HealthWizardModal
         visible={showWizard}
         onClose={() => setShowWizard(false)}
