@@ -1,235 +1,260 @@
-// health.js (RAÍZ) — igual que antes (sin cambios)
-import { Platform, Linking } from 'react-native';
+// SaludScreen.js (RAÍZ) — auto-refresco cada 15s cuando la pantalla está enfocada y la app activa.
+// Sin botón "Actualizar datos". Muestra "Actualizado: hh:mm:ss".
+
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { View, Text, Button, ActivityIndicator, AppState } from 'react-native';
 import {
-  initialize,
-  SdkAvailabilityStatus,
-  getSdkStatus,
-  requestPermission,
-  getGrantedPermissions,
-  readRecords,
-  aggregateRecord,
-  openHealthConnectSettings,
-  openHealthConnectDataManagement,
-} from 'react-native-health-connect';
+  hcGetStatusDebug,
+  hcOpenSettings,
+  readTodaySteps,
+  readLatestHeartRate,
+  quickSetup,
+  hasAllPermissions,
+  getGrantedList,
+  areAllGranted,
+} from './health';
+import { useFocusEffect } from '@react-navigation/native';
 
-// Permisos mínimos
-const PERMS = [
-  { accessType: 'read', recordType: 'Steps' },
-  { accessType: 'read', recordType: 'HeartRate' },
-];
-
-// Mapa legible de estados del SDK
-const statusLabel = {
-  [SdkAvailabilityStatus.SDK_AVAILABLE]: 'SDK_AVAILABLE',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED]: 'PROVIDER_UPDATE_REQUIRED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_DISABLED]: 'PROVIDER_DISABLED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_NOT_INSTALLED]: 'PROVIDER_NOT_INSTALLED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE]: 'SDK_UNAVAILABLE',
-};
-
-// Init único
-let _inited = false;
-async function ensureInit() {
-  if (_inited) return;
-  await initialize(); // idempotente
-  _inited = true;
-}
-
-// Utils
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-function startOfTodayIso() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return start.toISOString();
-}
-function uniq(arr) {
-  return Array.from(new Set((arr || []).filter(Boolean)));
-}
-
-// ---- ESTADO SDK / SETTINGS ----
-export async function hcGetStatusDebug() {
-  if (Platform.OS !== 'android') return { status: -1, label: 'NOT_ANDROID' };
+function fmtTime(iso) {
+  if (!iso) return '—';
   try {
-    await ensureInit();
-    const s = await getSdkStatus();
-    return { status: s, label: statusLabel[s] ?? String(s) };
+    const d = new Date(iso);
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch {
-    return { status: -2, label: 'STATUS_ERROR' };
+    return iso;
+  }
+}
+function fmtClock(d) {
+  if (!d) return '—';
+  try {
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch {
+    return '—';
   }
 }
 
-export async function hcOpenSettings() {
-  if (Platform.OS !== 'android') return false;
-  await ensureInit();
-  try { await openHealthConnectSettings(); return true; } catch {}
-  try {
-    if (typeof openHealthConnectDataManagement === 'function') {
-      await openHealthConnectDataManagement();
-      return true;
+const INTERVAL_MS = 15000;
+
+export default function SaludScreen() {
+  const [loading, setLoading] = useState(false);
+  const [statusLabel, setStatusLabel] = useState('');
+  const [granted, setGranted] = useState(false);
+  const [available, setAvailable] = useState(false);
+  const [data, setData] = useState(null); // { steps, bpm, hrAt, hrOrigin, stepOrigins, stepsAsOf }
+  const [grantedList, setGrantedList] = useState([]); // debug
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  // refs para controlar auto refresh
+  const intervalRef = useRef(null);
+  const isRefreshingRef = useRef(false);
+  const focusedRef = useRef(false);
+  const appActiveRef = useRef(true);
+
+  const stopInterval = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
-  } catch {}
-  const pkg = 'com.google.android.apps.healthdata';
-  try { await Linking.openURL(`market://details?id=${pkg}`); return true; } catch {}
-  try { await Linking.openURL(`https://play.google.com/store/apps/details?id=${pkg}`); return true; } catch {}
-  return false;
-}
+  }, []);
 
-// ---- PERMISOS (vía getGrantedPermissions) ----
-export async function getGrantedList() {
-  if (Platform.OS !== 'android') return [];
-  await ensureInit();
-  try {
-    const list = await getGrantedPermissions();
-    return (list || []).map(p => `${p.recordType}:${p.accessType}`);
-  } catch {
-    return [];
-  }
-}
-export function areAllGranted(grantedList) {
-  const need = PERMS.map(p => `${p.recordType}:${p.accessType}`);
-  return need.every(x => grantedList.includes(x));
-}
-export async function hasAllPermissions() {
-  const grantedList = await getGrantedList();
-  return areAllGranted(grantedList);
-}
-export async function requestAllPermissions() {
-  if (Platform.OS !== 'android') return false;
-  await ensureInit();
-  try { await requestPermission(PERMS); } catch {}
-  for (let i = 0; i < 3; i++) {
-    const ok = await hasAllPermissions();
-    if (ok) return true;
-    await sleep(400);
-  }
-  return false;
-}
-export async function quickSetup() {
-  if (Platform.OS !== 'android') return false;
-  try {
-    await ensureInit();
-    const s = await getSdkStatus();
-    if (s !== SdkAvailabilityStatus.SDK_AVAILABLE) {
-      try { await openHealthConnectSettings(); } catch {}
-      return false;
+  const refreshStatus = useCallback(async () => {
+    try {
+      const s = await hcGetStatusDebug();
+      setStatusLabel(`${s.label} (${s.status})`);
+      setAvailable(s.label === 'SDK_AVAILABLE' || s.status === 0);
+    } catch {
+      setStatusLabel('STATUS_ERROR');
+      setAvailable(false);
     }
-    const ok = await requestAllPermissions();
-    return !!ok;
-  } catch {
-    return false;
-  }
-}
+  }, []);
 
-// ---- LECTURAS ----
-export async function readTodaySteps() {
-  if (Platform.OS !== 'android') return { steps: 0, source: 'na', origins: [], asOf: null };
-  await ensureInit();
-  const start = startOfTodayIso();
-  const end = new Date().toISOString();
+  const refreshPermissions = useCallback(async () => {
+    const list = await getGrantedList();
+    setGrantedList(list);
+    const ok = areAllGranted(list);
+    setGranted(ok);
+    return ok;
+  }, []);
 
-  // 1) Aggregate
-  try {
-    const agg = await aggregateRecord({
-      recordType: 'Steps',
-      timeRangeFilter: { operator: 'between', startTime: start, endTime: end },
-    });
-    const steps =
-      agg?.count ??
-      agg?.countTotal ??
-      agg?.steps ??
-      null;
+  const refreshData = useCallback(async () => {
+    try {
+      const [stepsRes, hrRes] = await Promise.allSettled([
+        readTodaySteps(),
+        readLatestHeartRate(),
+      ]);
 
-    if (typeof steps === 'number') {
-      const originsFromAgg = (agg?.dataOrigins || agg?.dataOrigin || []).map(o =>
-        o?.packageName ?? o?.package ?? o
-      );
-      return {
-        steps,
-        source: 'aggregate',
-        origins: uniq(originsFromAgg),
-        asOf: end,
+      const stepsBlock = stepsRes.status === 'fulfilled' && stepsRes.value ? stepsRes.value : null;
+      const hrBlock = hrRes.status === 'fulfilled' && hrRes.value ? hrRes.value : null;
+
+      const steps = stepsBlock?.steps ?? 0;
+      const stepOrigins = stepsBlock?.origins ?? [];
+      const stepsAsOf = stepsBlock?.asOf ?? null;
+
+      const bpm = hrBlock?.bpm ?? null;
+      const hrAt = hrBlock?.at ?? null;
+      const hrOrigin = hrBlock?.origin ?? null;
+
+      setData({ steps, stepOrigins, stepsAsOf, bpm, hrAt, hrOrigin });
+      setLastUpdated(new Date());
+    } catch {
+      setData(null);
+    }
+  }, []);
+
+  const tick = useCallback(async () => {
+    if (!available || !granted) return;
+    if (!focusedRef.current || !appActiveRef.current) return;
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
+    try {
+      await refreshData();
+    } finally {
+      isRefreshingRef.current = false;
+    }
+  }, [available, granted, refreshData]);
+
+  const tryStartInterval = useCallback(() => {
+    if (!intervalRef.current && available && granted && focusedRef.current && appActiveRef.current) {
+      intervalRef.current = setInterval(tick, INTERVAL_MS);
+    }
+  }, [available, granted, tick]);
+
+  const fullRefresh = useCallback(async () => {
+    await refreshStatus();
+    const ok = await refreshPermissions();
+    if (available && ok) {
+      await refreshData();
+      tryStartInterval();
+    } else {
+      stopInterval();
+      setData(null);
+    }
+  }, [available, refreshStatus, refreshPermissions, refreshData, tryStartInterval, stopInterval]);
+
+  // manejar foco de pantalla
+  useFocusEffect(
+    useCallback(() => {
+      focusedRef.current = true;
+      (async () => {
+        setLoading(true);
+        try { await fullRefresh(); } finally { setLoading(false); }
+      })();
+      return () => {
+        focusedRef.current = false;
+        stopInterval();
       };
-    }
-  } catch {}
-  // 2) Fallback raw
-  try {
-    const { records = [] } = await readRecords('Steps', {
-      timeRangeFilter: { operator: 'between', startTime: start, endTime: end },
-      ascendingOrder: false,
-      pageSize: 200,
-    });
-    let total = 0;
-    const origins = [];
-    let latestTs = null;
-    for (const r of records) {
-      total += (r?.count ?? r?.steps ?? 0);
-      const pkg =
-        r?.metadata?.dataOrigin?.packageName ??
-        r?.metadata?.dataOrigin?.package ??
-        r?.metadata?.dataOrigin ??
-        null;
-      if (pkg) origins.push(pkg);
-      const t = r?.endTime ?? r?.startTime ?? null;
-      if (t && (!latestTs || new Date(t).getTime() > new Date(latestTs).getTime())) {
-        latestTs = t;
-      }
-    }
-    return { steps: total, source: 'raw', origins: uniq(origins), asOf: latestTs };
-  } catch {
-    return { steps: 0, source: 'error', origins: [], asOf: null };
-  }
-}
+    }, [fullRefresh, stopInterval])
+  );
 
-export async function readLatestHeartRate() {
-  if (Platform.OS !== 'android') return { bpm: null, at: null, origin: null };
-  await ensureInit();
-  try {
-    const end = new Date();
-    const start = new Date(end.getTime() - 1000 * 60 * 60 * 48); // 48h
-    const { records = [] } = await readRecords('HeartRate', {
-      timeRangeFilter: {
-        operator: 'between',
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-      },
-      ascendingOrder: false,
-      pageSize: 100,
-    });
-
-    let best = { bpm: null, at: null, origin: null };
-    let bestTs = 0;
-
-    for (const rec of records) {
-      const origin =
-        rec?.metadata?.dataOrigin?.packageName ??
-        rec?.metadata?.dataOrigin?.package ??
-        rec?.metadata?.dataOrigin ??
-        null;
-
-      if (Array.isArray(rec?.samples) && rec.samples.length) {
-        for (const s of rec.samples) {
-          const ts = s?.time ? new Date(s.time).getTime() : 0;
-          const val = s?.beatsPerMinute ?? s?.bpm ?? null;
-          if (val != null && ts > bestTs) {
-            bestTs = ts;
-            best = { bpm: val, at: s.time, origin };
-          }
-        }
+  // manejar estado de la app (activo/inactivo)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (st) => {
+      const active = st === 'active';
+      appActiveRef.current = active;
+      if (active) {
+        setLoading(true);
+        try { await fullRefresh(); } finally { setLoading(false); }
       } else {
-        const ts =
-          rec?.endTime ? new Date(rec.endTime).getTime()
-          : rec?.startTime ? new Date(rec.startTime).getTime()
-          : 0;
-        const val = rec?.beatsPerMinute ?? rec?.bpm ?? null;
-        if (val != null && ts > bestTs) {
-          bestTs = ts;
-          best = { bpm: val, at: rec?.endTime ?? rec?.startTime ?? null, origin };
-        }
+        stopInterval();
       }
-    }
+    });
+    return () => sub.remove();
+  }, [fullRefresh, stopInterval]);
 
-    return best;
-  } catch {
-    return { bpm: null, at: null, origin: null };
+  async function handleRequest() {
+    setLoading(true);
+    try {
+      const ok = await quickSetup();
+      for (let i = 0; i < 3; i++) {
+        const okNow = await refreshPermissions();
+        if (okNow) break;
+      }
+      if (ok && (await hasAllPermissions())) {
+        await refreshData();
+        tryStartInterval();
+      }
+    } finally {
+      setLoading(false);
+    }
   }
+
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', padding: 24 }}>
+      {loading ? (
+        <View style={{ alignItems: 'center' }}>
+          <ActivityIndicator />
+          <Text style={{ marginTop: 12 }}>Sincronizando con Health Connect…</Text>
+        </View>
+      ) : (
+        <>
+          {!available && (
+            <>
+              <Text style={{ fontSize: 16, marginBottom: 6 }}>
+                Health Connect no está disponible (estado: {statusLabel}).
+              </Text>
+              <Text style={{ fontSize: 14, opacity: 0.8, marginBottom: 12 }}>
+                Instala/actualiza y habilita Health Connect, luego vuelve aquí.
+              </Text>
+
+              <Button
+                title="Abrir Health Connect"
+                onPress={async () => {
+                  setLoading(true);
+                  try { await hcOpenSettings(); } finally { setLoading(false); }
+                }}
+              />
+              <View style={{ height: 12 }} />
+              <Button
+                title="Revisar de nuevo"
+                onPress={async () => {
+                  setLoading(true);
+                  try { await fullRefresh(); } finally { setLoading(false); }
+                }}
+              />
+            </>
+          )}
+
+          {available && !granted && (
+            <>
+              <Text style={{ fontSize: 16, marginBottom: 6 }}>
+                Otorga permisos de lectura de Pasos y Frecuencia Cardíaca.
+              </Text>
+              <Button title="Solicitar permisos ahora" onPress={handleRequest} />
+              <View style={{ marginTop: 16, opacity: 0.7 }}>
+                <Text style={{ fontSize: 12 }}>
+                  Concedidos: {grantedList.length ? grantedList.join(', ') : '—'}
+                </Text>
+              </View>
+            </>
+          )}
+
+          {available && granted && (
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 8 }}>
+                Lecturas recientes
+              </Text>
+
+              <Text style={{ fontSize: 16, marginBottom: 2 }}>
+                Último pulso: {data?.bpm != null ? `${data.bpm} bpm` : '—'}
+              </Text>
+              <Text style={{ fontSize: 12, opacity: 0.7, marginBottom: 12 }}>
+                Hora: {fmtTime(data?.hrAt)}{data?.hrOrigin ? `  ·  Origen: ${data.hrOrigin}` : ''}
+              </Text>
+
+              <Text style={{ fontSize: 16, marginBottom: 2 }}>
+                Pasos (hoy): {data?.steps ?? 0}
+              </Text>
+              <Text style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
+                Orígenes: {data?.stepOrigins?.length ? data.stepOrigins.join(', ') : '—'}
+              </Text>
+
+              <Text style={{ fontSize: 12, opacity: 0.7 }}>
+                Actualizado: {fmtClock(lastUpdated)} · auto cada 15 s
+              </Text>
+            </View>
+          )}
+        </>
+      )}
+    </View>
+  );
 }
