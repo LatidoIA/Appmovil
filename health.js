@@ -1,6 +1,7 @@
 // health.js (RAÍZ)
 import { Platform, Linking } from 'react-native';
 import {
+  initialize,
   SdkAvailabilityStatus,
   getSdkStatus,
   requestPermission,
@@ -25,9 +26,18 @@ const statusLabel = {
   [SdkAvailabilityStatus.SDK_UNAVAILABLE]: 'SDK_UNAVAILABLE',
 };
 
+// Init único para evitar estados inconsistentes
+let _inited = false;
+async function ensureInit() {
+  if (_inited) return;
+  await initialize(); // idempotente
+  _inited = true;
+}
+
 export async function hcGetStatusDebug() {
   if (Platform.OS !== 'android') return { status: -1, label: 'NOT_ANDROID' };
   try {
+    await ensureInit();
     const s = await getSdkStatus();
     return { status: s, label: statusLabel[s] ?? String(s) };
   } catch {
@@ -37,8 +47,14 @@ export async function hcGetStatusDebug() {
 
 export async function hcOpenSettings() {
   if (Platform.OS !== 'android') return false;
+  await ensureInit();
   try { await openHealthConnectSettings(); return true; } catch {}
-  try { await openHealthConnectDataManagement(); return true; } catch {}
+  try {
+    if (typeof openHealthConnectDataManagement === 'function') {
+      await openHealthConnectDataManagement();
+      return true;
+    }
+  } catch {}
   const pkg = 'com.google.android.apps.healthdata';
   try { await Linking.openURL(`market://details?id=${pkg}`); return true; } catch {}
   try { await Linking.openURL(`https://play.google.com/store/apps/details?id=${pkg}`); return true; } catch {}
@@ -47,18 +63,27 @@ export async function hcOpenSettings() {
 
 export async function hasAllPermissions() {
   if (Platform.OS !== 'android') return false;
-  try { return await hasPermissions(PERMS); } catch { return false; }
+  try {
+    await ensureInit();
+    return await hasPermissions(PERMS);
+  } catch {
+    return false;
+  }
 }
 
 export async function requestAllPermissions() {
   if (Platform.OS !== 'android') return false;
-  try { await requestPermission(PERMS); } catch {}
+  try {
+    await ensureInit();
+    await requestPermission(PERMS);
+  } catch {}
   return hasAllPermissions();
 }
 
 export async function quickSetup() {
   if (Platform.OS !== 'android') return false;
   try {
+    await ensureInit();
     const s = await getSdkStatus();
     if (s !== SdkAvailabilityStatus.SDK_AVAILABLE) {
       try { await openHealthConnectSettings(); } catch {}
@@ -76,6 +101,7 @@ export async function quickSetup() {
 export async function readTodaySteps() {
   if (Platform.OS !== 'android') return { steps: 0 };
   try {
+    await ensureInit();
     const end = new Date();
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const { records = [] } = await readRecords('Steps', {
@@ -95,6 +121,7 @@ export async function readTodaySteps() {
 export async function readLatestHeartRate() {
   if (Platform.OS !== 'android') return { bpm: null, at: null };
   try {
+    await ensureInit();
     const end = new Date();
     const start = new Date(end.getTime() - 1000 * 60 * 60 * 48); // últimas 48h
     const { records = [] } = await readRecords('HeartRate', {
@@ -103,7 +130,7 @@ export async function readLatestHeartRate() {
         startTime: start.toISOString(),
         endTime: end.toISOString(),
       },
-      ascending: false,
+      ascendingOrder: false, // clave correcta
       pageSize: 1,
     });
 
