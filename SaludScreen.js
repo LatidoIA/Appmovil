@@ -1,6 +1,4 @@
-// SaludScreen.js (RAÍZ) — estrategia nueva: sin botón “Abrir Health Connect” en estado granted=false;
-// determinamos permisos con getGrantedPermissions(); refresco agresivo al volver y tras request.
-
+// SaludScreen.js (RAÍZ) — corregido paréntesis de useFocusEffect
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, Button, ActivityIndicator, AppState } from 'react-native';
 import {
@@ -13,7 +11,6 @@ import {
   getGrantedList,
   areAllGranted,
 } from './health';
-
 import { useFocusEffect } from '@react-navigation/native';
 
 export default function SaludScreen() {
@@ -88,7 +85,7 @@ export default function SaludScreen() {
       })();
       return () => { active = false; };
     }, [fullRefresh])
-  );
+  ); // <- AQUÍ estaba faltando este paréntesis de cierre
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (st) => {
@@ -100,3 +97,134 @@ export default function SaludScreen() {
     return () => sub.remove();
   }, [fullRefresh]);
 
+  async function handleRequest() {
+    console.log('[SALUD] pedir permisos');
+    setLoading(true);
+    try {
+      const ok = await quickSetup(); // abre sheet de permisos
+      console.log('[SALUD] quickSetup =>', ok);
+
+      // Refresco post-permisos con polling corto
+      for (let i = 0; i < 3; i++) {
+        const okNow = await refreshPermissions();
+        if (okNow) break;
+      }
+      if (await hasAllPermissions()) {
+        await refreshData();
+      }
+    } catch (e) {
+      console.log('[SALUD] handleRequest error:', e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', padding: 24 }}>
+      {loading ? (
+        <View style={{ alignItems: 'center' }}>
+          <ActivityIndicator />
+          <Text style={{ marginTop: 12 }}>Preparando Health Connect…</Text>
+        </View>
+      ) : (
+        <>
+          {!available && (
+            <>
+              <Text style={{ fontSize: 16, marginBottom: 6 }}>
+                Health Connect no está disponible (estado: {statusLabel}).
+              </Text>
+              <Text style={{ fontSize: 14, opacity: 0.8, marginBottom: 12 }}>
+                Instala/actualiza y habilita Health Connect, luego vuelve aquí.
+              </Text>
+
+              <Button
+                title="Abrir Health Connect"
+                onPress={async () => {
+                  console.log('[SALUD] abrir ajustes HC');
+                  setLoading(true);
+                  try { await hcOpenSettings(); } finally { setLoading(false); }
+                }}
+              />
+              <View style={{ height: 12 }} />
+              <Button
+                title="Revisar de nuevo"
+                onPress={async () => {
+                  console.log('[SALUD] revisar de nuevo');
+                  setLoading(true);
+                  try { await fullRefresh(); } finally { setLoading(false); }
+                }}
+              />
+            </>
+          )}
+
+          {available && !granted && (
+            <>
+              <Text style={{ fontSize: 16, marginBottom: 6 }}>
+                Otorga permisos de lectura de Pasos y Frecuencia Cardíaca.
+              </Text>
+
+              <Button title="Solicitar permisos ahora" onPress={handleRequest} />
+
+              <View style={{ height: 12 }} />
+              <Button
+                title="Revisar de nuevo"
+                onPress={async () => {
+                  console.log('[SALUD] revisar de nuevo (granted=false)');
+                  setLoading(true);
+                  try { await fullRefresh(); } finally { setLoading(false); }
+                }}
+              />
+
+              {/* Debug mínimo */}
+              <View style={{ marginTop: 16, opacity: 0.7 }}>
+                <Text style={{ fontSize: 12 }}>
+                  Concedidos: {grantedList.length ? grantedList.join(', ') : '—'}
+                </Text>
+              </View>
+            </>
+          )}
+
+          {available && granted && (
+            <View style={{ alignItems: 'center' }}>
+              <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 8 }}>
+                Lecturas recientes
+              </Text>
+              <Text style={{ fontSize: 16, marginBottom: 4 }}>
+                Último pulso: {data?.bpm != null ? `${data.bpm} bpm` : '—'}
+              </Text>
+              <Text style={{ fontSize: 16, marginBottom: 16 }}>
+                Pasos (hoy): {data?.steps ?? 0}
+              </Text>
+
+              <Button
+                title="Actualizar datos"
+                onPress={async () => {
+                  console.log('[SALUD] actualizar datos');
+                  setLoading(true);
+                  try { await refreshData(); } finally { setLoading(false); }
+                }}
+              />
+
+              <View style={{ height: 12 }} />
+              <Button
+                title="Abrir Health Connect"
+                onPress={async () => {
+                  try { await hcOpenSettings(); } catch (e) {
+                    console.log('[SALUD] abrir HC (granted) error:', e);
+                  }
+                }}
+              />
+
+              {/* Debug mínimo */}
+              <View style={{ marginTop: 16, opacity: 0.7 }}>
+                <Text style={{ fontSize: 12 }}>
+                  Concedidos: {grantedList.length ? grantedList.join(', ') : '—'}
+                </Text>
+              </View>
+            </View>
+          )}
+        </>
+      )}
+    </View>
+  );
+}
