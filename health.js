@@ -1,4 +1,5 @@
-// health.js (RAÍZ) — estrategia nueva (sin cambios respecto a la última versión)
+// health.js (RAÍZ) — añade origen/tiempo de cada métrica y búsqueda del sample más reciente global
+
 import { Platform, Linking } from 'react-native';
 import {
   initialize,
@@ -12,7 +13,7 @@ import {
   openHealthConnectDataManagement,
 } from 'react-native-health-connect';
 
-// Permisos mínimos para tus métricas
+// Permisos mínimos
 const PERMS = [
   { accessType: 'read', recordType: 'Steps' },
   { accessType: 'read', recordType: 'HeartRate' },
@@ -41,6 +42,9 @@ function startOfTodayIso() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return start.toISOString();
+}
+function uniq(arr) {
+  return Array.from(new Set((arr || []).filter(Boolean)));
 }
 
 // ---- ESTADO SDK / SETTINGS ----
@@ -71,7 +75,7 @@ export async function hcOpenSettings() {
   return false;
 }
 
-// ---- PERMISOS (estrategia nueva) ----
+// ---- PERMISOS (vía getGrantedPermissions) ----
 export async function getGrantedList() {
   if (Platform.OS !== 'android') return [];
   await ensureInit();
@@ -82,17 +86,14 @@ export async function getGrantedList() {
     return [];
   }
 }
-
 export function areAllGranted(grantedList) {
   const need = PERMS.map(p => `${p.recordType}:${p.accessType}`);
   return need.every(x => grantedList.includes(x));
 }
-
 export async function hasAllPermissions() {
   const grantedList = await getGrantedList();
   return areAllGranted(grantedList);
 }
-
 export async function requestAllPermissions() {
   if (Platform.OS !== 'android') return false;
   await ensureInit();
@@ -104,7 +105,6 @@ export async function requestAllPermissions() {
   }
   return false;
 }
-
 export async function quickSetup() {
   if (Platform.OS !== 'android') return false;
   try {
@@ -122,13 +122,14 @@ export async function quickSetup() {
 }
 
 // ---- LECTURAS ----
+// Pasos de HOY + orígenes (packages) y timestamp del último registro visto
 export async function readTodaySteps() {
-  if (Platform.OS !== 'android') return { steps: 0, source: 'na' };
+  if (Platform.OS !== 'android') return { steps: 0, source: 'na', origins: [], asOf: null };
   await ensureInit();
   const start = startOfTodayIso();
   const end = new Date().toISOString();
 
-  // 1) Aggregate
+  // 1) Aggregate (preferido) — intenta exponer dataOrigins si la lib los provee
   try {
     const agg = await aggregateRecord({
       recordType: 'Steps',
@@ -139,27 +140,55 @@ export async function readTodaySteps() {
       agg?.countTotal ??
       agg?.steps ??
       null;
-    if (typeof steps === 'number') return { steps, source: 'aggregate' };
-  } catch {}
 
-  // 2) Fallback raw
+    if (typeof steps === 'number') {
+      const originsFromAgg = (agg?.dataOrigins || agg?.dataOrigin || []).map(o =>
+        o?.packageName ?? o?.package ?? o
+      );
+      return {
+        steps,
+        source: 'aggregate',
+        origins: uniq(originsFromAgg),
+        asOf: end,
+      };
+    }
+  } catch {}
+  // 2) Fallback raw + orígenes desde metadata.dataOrigin.packageName
   try {
     const { records = [] } = await readRecords('Steps', {
       timeRangeFilter: { operator: 'between', startTime: start, endTime: end },
+      ascendingOrder: false,
+      pageSize: 200, // suficiente para el día típico
     });
-    const total = records.reduce((sum, r) => sum + (r?.count ?? r?.steps ?? 0), 0);
-    return { steps: total, source: 'raw' };
+    let total = 0;
+    const origins = [];
+    let latestTs = null;
+    for (const r of records) {
+      total += (r?.count ?? r?.steps ?? 0);
+      const pkg =
+        r?.metadata?.dataOrigin?.packageName ??
+        r?.metadata?.dataOrigin?.package ??
+        r?.metadata?.dataOrigin ??
+        null;
+      if (pkg) origins.push(pkg);
+      const t = r?.endTime ?? r?.startTime ?? null;
+      if (t && (!latestTs || new Date(t).getTime() > new Date(latestTs).getTime())) {
+        latestTs = t;
+      }
+    }
+    return { steps: total, source: 'raw', origins: uniq(origins), asOf: latestTs };
   } catch {
-    return { steps: 0, source: 'error' };
+    return { steps: 0, source: 'error', origins: [], asOf: null };
   }
 }
 
+// Último HR global más reciente dentro de una ventana (buscamos el sample con mayor timestamp)
 export async function readLatestHeartRate() {
-  if (Platform.OS !== 'android') return { bpm: null, at: null };
+  if (Platform.OS !== 'android') return { bpm: null, at: null, origin: null };
   await ensureInit();
   try {
     const end = new Date();
-    const start = new Date(end.getTime() - 1000 * 60 * 60 * 48); // últimas 48h
+    const start = new Date(end.getTime() - 1000 * 60 * 60 * 48); // 48h
     const { records = [] } = await readRecords('HeartRate', {
       timeRangeFilter: {
         operator: 'between',
@@ -167,18 +196,43 @@ export async function readLatestHeartRate() {
         endTime: end.toISOString(),
       },
       ascendingOrder: false,
-      pageSize: 1,
+      pageSize: 100, // escanea suficientes registros recientes
     });
 
-    if (!records.length) return { bpm: null, at: null };
+    let best = { bpm: null, at: null, origin: null };
+    let bestTs = 0;
 
-    const rec = records[0];
-    if (Array.isArray(rec.samples) && rec.samples.length) {
-      const last = rec.samples[rec.samples.length - 1];
-      return { bpm: last?.beatsPerMinute ?? last?.bpm ?? null, at: last?.time ?? rec?.endTime ?? null };
+    for (const rec of records) {
+      const origin =
+        rec?.metadata?.dataOrigin?.packageName ??
+        rec?.metadata?.dataOrigin?.package ??
+        rec?.metadata?.dataOrigin ??
+        null;
+
+      if (Array.isArray(rec?.samples) && rec.samples.length) {
+        for (const s of rec.samples) {
+          const ts = s?.time ? new Date(s.time).getTime() : 0;
+          const val = s?.beatsPerMinute ?? s?.bpm ?? null;
+          if (val != null && ts > bestTs) {
+            bestTs = ts;
+            best = { bpm: val, at: s.time, origin };
+          }
+        }
+      } else {
+        const ts =
+          rec?.endTime ? new Date(rec.endTime).getTime()
+          : rec?.startTime ? new Date(rec.startTime).getTime()
+          : 0;
+        const val = rec?.beatsPerMinute ?? rec?.bpm ?? null;
+        if (val != null && ts > bestTs) {
+          bestTs = ts;
+          best = { bpm: val, at: rec?.endTime ?? rec?.startTime ?? null, origin };
+        }
+      }
     }
-    return { bpm: rec?.beatsPerMinute ?? rec?.bpm ?? null, at: rec?.endTime ?? null };
+
+    return best;
   } catch {
-    return { bpm: null, at: null };
+    return { bpm: null, at: null, origin: null };
   }
 }
