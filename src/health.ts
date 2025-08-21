@@ -1,49 +1,42 @@
 // src/health.js
 import { Platform, Linking } from 'react-native';
-import {
-  initialize,
-  getSdkStatus,
-  requestPermission,
-  getGrantedPermissions,
-  readRecords,
-  openHealthConnectSettings,
-  openHealthConnectDataManagement,
-  SdkAvailabilityStatus,
-} from 'react-native-health-connect';
+import * as HC from 'expo-health-connect';
 
-let _inited = false;
-
-async function ensureInitialized() {
-  if (Platform.OS !== 'android') return false;
-  if (_inited) return true;
-  try {
-    const ok = await initialize();
-    _inited = !!ok;
-    return _inited;
-  } catch {
-    return false;
-  }
-}
-
-const STATUS_LABEL = {
-  [SdkAvailabilityStatus.SDK_AVAILABLE]: 'SDK_AVAILABLE',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED]: 'PROVIDER_UPDATE_REQUIRED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_DISABLED]: 'PROVIDER_DISABLED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_NOT_INSTALLED]: 'PROVIDER_NOT_INSTALLED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE]: 'SDK_UNAVAILABLE',
+// Normaliza enums por si cambian de nombre en la lib
+export const SdkAvailabilityStatus = HC.SdkAvailabilityStatus || {
+  SDK_AVAILABLE: 0,
+  SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED: 1,
+  SDK_UNAVAILABLE_PROVIDER_DISABLED: 2,
+  SDK_UNAVAILABLE_PROVIDER_NOT_INSTALLED: 3,
+  SDK_UNAVAILABLE: 4,
 };
 
-const READ_PERMS = [
-  { accessType: 'read', recordType: 'Steps' },
-  { accessType: 'read', recordType: 'HeartRate' },
-];
+// Helpers seguros (evitan "undefined is not a function")
+async function getSdkStatusSafe() {
+  if (Platform.OS !== 'android') return SdkAvailabilityStatus.SDK_UNAVAILABLE;
+  if (typeof HC.getSdkStatus === 'function') {
+    return HC.getSdkStatus();
+  }
+  if (typeof HC.isAvailable === 'function') {
+    // fallback muy básico
+    const ok = await HC.isAvailable();
+    return ok ? SdkAvailabilityStatus.SDK_AVAILABLE : SdkAvailabilityStatus.SDK_UNAVAILABLE;
+  }
+  return SdkAvailabilityStatus.SDK_UNAVAILABLE;
+}
 
 export async function hcGetStatusDebug() {
   if (Platform.OS !== 'android') return { status: -1, label: 'NOT_ANDROID' };
   try {
-    await ensureInitialized();
-    const s = await getSdkStatus();
-    return { status: s, label: STATUS_LABEL[s] ?? String(s) };
+    const s = await getSdkStatusSafe();
+    const labelMap = {
+      [SdkAvailabilityStatus.SDK_AVAILABLE]: 'SDK_AVAILABLE',
+      [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED]: 'PROVIDER_UPDATE_REQUIRED',
+      [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_DISABLED]: 'PROVIDER_DISABLED',
+      [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_NOT_INSTALLED]: 'PROVIDER_NOT_INSTALLED',
+      [SdkAvailabilityStatus.SDK_UNAVAILABLE]: 'SDK_UNAVAILABLE',
+    };
+    return { status: s, label: labelMap[s] ?? String(s) };
   } catch {
     return { status: -2, label: 'STATUS_ERROR' };
   }
@@ -51,95 +44,129 @@ export async function hcGetStatusDebug() {
 
 export async function hcOpenSettings() {
   if (Platform.OS !== 'android') return false;
-  try { await openHealthConnectSettings(); return true; } catch {}
-  try { await openHealthConnectDataManagement(); return true; } catch {}
+  // 1) Ajustes nativos
+  try {
+    if (typeof HC.openHealthConnectSettings === 'function') {
+      await HC.openHealthConnectSettings();
+      return true;
+    }
+  } catch {}
+  // 2) Gestión de datos (fallback)
+  try {
+    if (typeof HC.openHealthConnectDataManagement === 'function') {
+      await HC.openHealthConnectDataManagement();
+      return true;
+    }
+  } catch {}
+  // 3) Play Store
   const pkg = 'com.google.android.apps.healthdata';
   try { await Linking.openURL(`market://details?id=${pkg}`); return true; } catch {}
   try { await Linking.openURL(`https://play.google.com/store/apps/details?id=${pkg}`); return true; } catch {}
   return false;
 }
 
-export async function isPermissionGranted() {
-  if (Platform.OS !== 'android') return false;
-  try {
-    await ensureInitialized();
-    const granted = await getGrantedPermissions();
-    return READ_PERMS.every((p) =>
-      granted.some((g) => g.recordType === p.recordType && g.accessType === 'read')
-    );
-  } catch {
-    return false;
-  }
+// ---- Permisos y lectura ----
+
+function todayRange() {
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0,0,0,0);
+  return { startTime: start.toISOString(), endTime: now.toISOString() };
 }
 
-export async function ensurePermissions() {
+function hcRecordType(name) {
+  // intenta usar constantes si existen
+  if (HC.RecordType?.[name]) return HC.RecordType[name];
+  return name; // string fallback
+}
+
+async function requestReadPermissions() {
   if (Platform.OS !== 'android') return false;
+  const perms = [
+    { accessType: 'read', recordType: hcRecordType('Steps') },
+    { accessType: 'read', recordType: hcRecordType('HeartRate') },
+  ];
+  // checkPermissions si existe
   try {
-    await ensureInitialized();
-    const sdk = await getSdkStatus();
-    if (sdk !== SdkAvailabilityStatus.SDK_AVAILABLE) return false;
-    await requestPermission(READ_PERMS);
-    return await isPermissionGranted();
+    if (typeof HC.checkPermissions === 'function') {
+      const res = await HC.checkPermissions(perms);
+      if (res?.every?.(p => p?.granted)) return true;
+    }
+  } catch {}
+
+  try {
+    if (typeof HC.requestPermissions === 'function') {
+      const res = await HC.requestPermissions(perms);
+      return Array.isArray(res) ? res.every(p => p?.granted) : !!res;
+    }
   } catch (e) {
-    console.debug('[HC] ensurePermissions error:', e?.message || e);
+    // algunos devices devuelven error si el provider no está listo
     return false;
   }
+  return false;
 }
 
 export async function quickSetup() {
-  const ok = await ensurePermissions();
-  return !!ok;
+  if (Platform.OS !== 'android') return false;
+  const s = await getSdkStatusSafe();
+  // si no está disponible aún, abre ajustes para que el usuario lo active/instale
+  if (s !== SdkAvailabilityStatus.SDK_AVAILABLE) {
+    await hcOpenSettings();
+    return false;
+  }
+  return requestReadPermissions();
 }
 
 export async function readTodaySteps() {
   if (Platform.OS !== 'android') return { steps: 0 };
+  if (typeof HC.readRecords !== 'function') return { steps: 0 };
+  const { startTime, endTime } = todayRange();
   try {
-    await ensureInitialized();
-    const now = new Date();
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    const res = await readRecords('Steps', {
-      timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: now.toISOString() },
+    const recs = await HC.readRecords({
+      recordType: hcRecordType('Steps'),
+      timeRangeFilter: { startTime, endTime },
     });
-    const total = (res?.records || []).reduce(
-      (sum, r) => sum + (Number(r.count) || Number(r.steps) || 0),
-      0
-    ) || 0;
-    return { steps: total };
+    const list = Array.isArray(recs?.records) ? recs.records : Array.isArray(recs) ? recs : [];
+    const total = list.reduce((sum, r) => sum + (r?.count ?? r?.count?.toString?.() ? Number(r.count) : 0), 0);
+    return { steps: Number.isFinite(total) ? total : 0 };
   } catch (e) {
-    console.debug('[HC] readTodaySteps error:', e?.message || e);
     return { steps: 0 };
   }
 }
 
 export async function readLatestHeartRate() {
   if (Platform.OS !== 'android') return { bpm: null, at: null };
+  if (typeof HC.readRecords !== 'function') return { bpm: null, at: null };
   try {
-    await ensureInitialized();
+    // rango amplio (últimos 7 días) para asegurar datos
     const end = new Date();
-    const start = new Date(end);
-    start.setDate(start.getDate() - 2);
-    const res = await readRecords('HeartRate', {
-      timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
+    const start = new Date(end.getTime() - 7 * 24 * 3600 * 1000);
+    const recs = await HC.readRecords({
+      recordType: hcRecordType('HeartRate'),
+      timeRangeFilter: { startTime: start.toISOString(), endTime: end.toISOString() },
+      // si la lib soporta paginación/orden, usamos fallback igualmente
     });
-
-    let latest = null;
-    for (const rec of res?.records || []) {
-      if (rec?.samples?.length) {
-        for (const s of rec.samples) {
-          const t = s.time ? new Date(s.time) : (rec.endTime ? new Date(rec.endTime) : null);
-          const bpm = s.beatsPerMinute ?? s.bpm ?? null;
-          if (bpm != null && t && (!latest || t > latest.at)) latest = { bpm: Number(bpm), at: t };
-        }
-      } else {
-        const t = rec.endTime ? new Date(rec.endTime) : (rec.startTime ? new Date(rec.startTime) : null);
-        const bpm = rec.beatsPerMinute ?? rec.bpm ?? null;
-        if (bpm != null && t && (!latest || t > latest.at)) latest = { bpm: Number(bpm), at: t };
-      }
+    const list = Array.isArray(recs?.records) ? recs.records : Array.isArray(recs) ? recs : [];
+    if (!list.length) return { bpm: null, at: null };
+    // tomar el más reciente por time o endTime
+    const sorted = list
+      .map(r => {
+        const t = r?.time ?? r?.endTime ?? r?.startTime;
+        return { r, ts: t ? new Date(t).getTime() : 0 };
+      })
+      .sort((a,b) => b.ts - a.ts);
+    const latest = sorted[0]?.r;
+    // en HeartRate, algunas libs devuelven samples; si hay samples, tomar la última
+    if (latest?.samples?.length) {
+      const lastS = latest.samples[latest.samples.length - 1];
+      const bpm = Number(lastS?.beatsPerMinute ?? lastS?.bpm ?? lastS?.value ?? latest?.bpm ?? latest?.beatsPerMinute);
+      const at  = lastS?.time ?? latest?.time ?? latest?.endTime ?? latest?.startTime ?? null;
+      return { bpm: Number.isFinite(bpm) ? bpm : null, at };
     }
-    return latest || { bpm: null, at: null };
-  } catch (e) {
-    console.debug('[HC] readLatestHeartRate error:', e?.message || e);
+    const bpm = Number(latest?.beatsPerMinute ?? latest?.bpm ?? latest?.value);
+    const at  = latest?.time ?? latest?.endTime ?? latest?.startTime ?? null;
+    return { bpm: Number.isFinite(bpm) ? bpm : null, at };
+  } catch {
     return { bpm: null, at: null };
   }
 }
