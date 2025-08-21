@@ -1,6 +1,4 @@
-// health.js (RAÍZ) — estrategia nueva: no usamos hasPermissions(); verificamos con getGrantedPermissions()
-// + polling breve tras requestPermission; Steps con aggregateRecord (fallback a raw)
-
+// health.js (RAÍZ) — estrategia nueva (sin cambios respecto a la última versión)
 import { Platform, Linking } from 'react-native';
 import {
   initialize,
@@ -39,7 +37,6 @@ async function ensureInit() {
 
 // Utils
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
 function startOfTodayIso() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -80,7 +77,6 @@ export async function getGrantedList() {
   await ensureInit();
   try {
     const list = await getGrantedPermissions();
-    // normalizamos a "recordType:accessType"
     return (list || []).map(p => `${p.recordType}:${p.accessType}`);
   } catch {
     return [];
@@ -101,7 +97,6 @@ export async function requestAllPermissions() {
   if (Platform.OS !== 'android') return false;
   await ensureInit();
   try { await requestPermission(PERMS); } catch {}
-  // Poll 3 veces (hasta ~1.2s) para esperar propagación
   for (let i = 0; i < 3; i++) {
     const ok = await hasAllPermissions();
     if (ok) return true;
@@ -133,7 +128,7 @@ export async function readTodaySteps() {
   const start = startOfTodayIso();
   const end = new Date().toISOString();
 
-  // 1) Intento agregado (preferido)
+  // 1) Aggregate
   try {
     const agg = await aggregateRecord({
       recordType: 'Steps',
@@ -145,9 +140,7 @@ export async function readTodaySteps() {
       agg?.steps ??
       null;
     if (typeof steps === 'number') return { steps, source: 'aggregate' };
-  } catch (e) {
-    // caemos a raw
-  }
+  } catch {}
 
   // 2) Fallback raw
   try {
