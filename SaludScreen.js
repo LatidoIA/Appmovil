@@ -2,7 +2,6 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, Button, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-
 import {
   hcGetStatusDebug,
   isPermissionGranted,
@@ -22,16 +21,10 @@ export default function SaludScreen() {
     try {
       const s = await hcGetStatusDebug();
       setStatusLabel(s.label || String(s.status));
-
-      // Revisa permisos cada vez que la pestaña gana foco
       const granted = await isPermissionGranted();
       setHasPerms(!!granted);
-
       if (granted) {
-        const [st, hr] = await Promise.all([
-          readTodaySteps(),
-          readLatestHeartRate(),
-        ]);
+        const [st, hr] = await Promise.all([readTodaySteps(), readLatestHeartRate()]);
         setSteps(st?.steps ?? 0);
         setBpm(hr?.bpm ?? null);
       }
@@ -44,7 +37,6 @@ export default function SaludScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      // Al entrar a la pestaña, refresca estatus y datos
       refreshAll();
     }, [refreshAll])
   );
@@ -62,8 +54,7 @@ export default function SaludScreen() {
             Lecturas recientes
           </Text>
           <Text style={{ opacity: 0.6, marginBottom: 16 }}>
-            Estado: {statusLabel}
-            {!hasPerms ? ' (sin permisos de lectura)' : ''}
+            Estado: {statusLabel}{!hasPerms ? ' (sin permisos de lectura)' : ''}
           </Text>
 
           <Text style={{ fontSize: 16, marginBottom: 6 }}>
@@ -73,10 +64,7 @@ export default function SaludScreen() {
             Pasos (hoy): {steps ?? 0}
           </Text>
 
-          <Button
-            title="ACTUALIZAR DATOS"
-            onPress={refreshAll}
-          />
+          <Button title="ACTUALIZAR DATOS" onPress={refreshAll} />
         </View>
       )}
     </View>
