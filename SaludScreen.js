@@ -1,4 +1,4 @@
-// src/SaludScreen.js
+// SaludScreen.js (RAÍZ)
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, Button, ActivityIndicator, AppState } from 'react-native';
 import {
@@ -8,7 +8,7 @@ import {
   readLatestHeartRate,
   quickSetup,
   hasAllPermissions,
-} from '../health'; // ⬅️ ajusta a '../health' si SaludScreen está en /src
+} from './health'; // <-- IMPORTA DESDE LA RAÍZ
 
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -35,9 +35,7 @@ export default function SaludScreen() {
   const refreshPermissionsAndData = useCallback(async () => {
     await refreshStatus();
     let g = false;
-    try {
-      g = await hasAllPermissions();
-    } catch {}
+    try { g = await hasAllPermissions(); } catch {}
     setGranted(!!g);
     if (g) {
       try {
@@ -65,7 +63,6 @@ export default function SaludScreen() {
     }
   }, [refreshStatus]);
 
-  // Al entrar a la pestaña: re-chequear siempre
   useFocusEffect(
     useCallback(() => {
       let active = true;
@@ -78,7 +75,6 @@ export default function SaludScreen() {
     }, [refreshPermissionsAndData])
   );
 
-  // Al volver la app a primer plano, re-chequear
   useEffect(() => {
     const sub = AppState.addEventListener('change', (st) => {
       if (st === 'active') {
@@ -92,9 +88,8 @@ export default function SaludScreen() {
     console.log('[SALUD] pedir permisos');
     setLoading(true);
     try {
-      const ok = await quickSetup(); // puede devolver false si abre Ajustes
+      const ok = await quickSetup();
       console.log('[SALUD] quickSetup =>', ok);
-      // SIEMPRE confirmamos permisos tras quickSetup o regreso desde Ajustes
       await refreshPermissionsAndData();
     } catch (e) {
       console.log('[SALUD] handleRequest error:', e);
@@ -126,11 +121,7 @@ export default function SaludScreen() {
                 onPress={async () => {
                   console.log('[SALUD] abrir ajustes HC');
                   setLoading(true);
-                  try {
-                    await hcOpenSettings();
-                  } finally {
-                    setLoading(false);
-                  }
+                  try { await hcOpenSettings(); } finally { setLoading(false); }
                 }}
               />
               <View style={{ height: 12 }} />
@@ -139,11 +130,7 @@ export default function SaludScreen() {
                 onPress={async () => {
                   console.log('[SALUD] revisar de nuevo');
                   setLoading(true);
-                  try {
-                    await refreshPermissionsAndData();
-                  } finally {
-                    setLoading(false);
-                  }
+                  try { await refreshPermissionsAndData(); } finally { setLoading(false); }
                 }}
               />
             </>
@@ -163,11 +150,7 @@ export default function SaludScreen() {
                 onPress={async () => {
                   console.log('[SALUD] abrir HC (desde granted=false)');
                   setLoading(true);
-                  try {
-                    await hcOpenSettings();
-                  } finally {
-                    setLoading(false);
-                  }
+                  try { await hcOpenSettings(); } finally { setLoading(false); }
                 }}
               />
 
@@ -177,11 +160,7 @@ export default function SaludScreen() {
                 onPress={async () => {
                   console.log('[SALUD] revisar de nuevo (granted=false)');
                   setLoading(true);
-                  try {
-                    await refreshPermissionsAndData();
-                  } finally {
-                    setLoading(false);
-                  }
+                  try { await refreshPermissionsAndData(); } finally { setLoading(false); }
                 }}
               />
             </>
@@ -204,11 +183,7 @@ export default function SaludScreen() {
                 onPress={async () => {
                   console.log('[SALUD] actualizar datos');
                   setLoading(true);
-                  try {
-                    await refreshPermissionsAndData();
-                  } finally {
-                    setLoading(false);
-                  }
+                  try { await refreshPermissionsAndData(); } finally { setLoading(false); }
                 }}
               />
 
