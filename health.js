@@ -338,6 +338,3 @@ export async function readLatestBloodPressure() {
     return { sys: null, dia: null, at: null, origin: null };
   }
 }
-
-// Exporta helpers de permisos si los necesitas en la UI
-export { hasAllPermissions, requestAllPermissions };
