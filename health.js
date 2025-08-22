@@ -1,6 +1,6 @@
 // health.js (RAÍZ)
-// Lecturas desde Health Connect: Steps, HeartRate, SpO2, SleepSession, BloodPressure
-// Permisos dinámicos + initialize() único + funciones robustas con fallbacks.
+// Lecturas desde Health Connect: Steps, HeartRate, OxygenSaturation, SleepSession, BloodPressure.
+// Permisos dinámicos + initialize() único + funciones con fallbacks.
 
 import { Platform, Linking } from 'react-native';
 import {
@@ -231,7 +231,7 @@ export async function readLatestHeartRate() {
   }
 }
 
-// SpO2 — último sample global más nuevo (48h)
+// SpO₂ — último sample global más nuevo (48h)
 export async function readLatestSpO2() {
   if (Platform.OS !== 'android') return { spo2: null, at: null, origin: null };
   await ensureInit();
@@ -305,7 +305,6 @@ export async function readSleepLast24h() {
 }
 
 // Presión arterial — último registro global más nuevo (7 días)
-// Normaliza a mmHg: {sys, dia, at, origin}
 export async function readLatestBloodPressure() {
   if (Platform.OS !== 'android') return { sys: null, dia: null, at: null, origin: null };
   await ensureInit();
