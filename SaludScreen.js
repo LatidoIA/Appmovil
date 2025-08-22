@@ -1,6 +1,6 @@
 // SaludScreen.js (RAÍZ)
-// UI original + Health Connect: HR, Steps, Sueño, SpO₂, Presión arterial.
-// Auto-refresh 15s, quickSetup inicial, y SIN pasar métricas a Cuidador (para evitar confusión).
+// UI original + Health Connect: HR, Steps, Sueño (24h), SpO₂, Presión arterial.
+// Auto-refresh 15s, quickSetup inicial. NO toca el flujo de Cuidador (se mantiene tu “+” externo).
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
@@ -23,6 +23,8 @@ import theme from './theme';
 
 import {
   quickSetup,
+  hasAllPermissions,
+  requestAllPermissions,
   readTodaySteps,
   readLatestHeartRate,
   readLatestSpO2,
@@ -195,9 +197,14 @@ export default function SaludScreen() {
     }
   }, []);
 
-  // Setup HC
+  // Setup HC + permisos (incluye SpO2/Sueño/PA)
   useEffect(() => {
-    quickSetup().catch(() => {});
+    (async () => {
+      const ok = await quickSetup();
+      if (!ok) return;
+      const hasAll = await hasAllPermissions();
+      if (!hasAll) await requestAllPermissions();
+    })().catch(() => {});
   }, []);
 
   // Fetch métricas cada 15s (Health Connect)
@@ -323,10 +330,8 @@ export default function SaludScreen() {
 
       {renderNextPharma()}
 
-      {/* Cuidador NO recibe métricas locales. Mantén tu flujo de vínculo en esa pantalla. */}
-      <CuidadorScreen
-        onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')}
-      />
+      {/* No alteramos tu flujo original de Cuidador (el botón “+” vive en la navegación de esa ruta). */}
+      <CuidadorScreen onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')} />
     </ScrollView>
   );
 }
