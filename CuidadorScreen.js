@@ -1,4 +1,4 @@
-// CuidadorScreen.js (restaurado desde Snack + fallbacks y polling 15s)
+// CuidadorScreen.js (Snack original + persistencia, desvincular y polling 15s)
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -22,6 +22,9 @@ import theme from './theme';
 
 const BACKEND_URL = 'https://orca-app-njfej.ondigitalocean.app';
 const PROFILE_KEY = '@latido_profile';
+// Persistencia del vínculo
+const CARE_LINK_ID = '@latido_care_patient_id';
+const CARE_LINK_NAME = '@latido_care_patient_name';
 
 export default function CuidadorScreen({ onCongratulate }) {
   const [modalVisible, setModalVisible] = useState(false);
@@ -30,21 +33,37 @@ export default function CuidadorScreen({ onCongratulate }) {
   const [joinCode, setJoinCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState({ name: '', email: '' });
+
   const [patientName, setPatientName] = useState('');
   const [patientId, setPatientId] = useState(null);
+
   const [metrics, setMetrics] = useState({});
+  const [lastAt, setLastAt] = useState(null);
   const pollRef = useRef(null);
 
+  // Cargar perfil + vínculo persistido
   useEffect(() => {
-    AsyncStorage.getItem(PROFILE_KEY)
-      .then(raw => raw && setProfile(JSON.parse(raw)))
-      .catch(() => {});
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(PROFILE_KEY);
+        if (raw) setProfile(JSON.parse(raw));
+      } catch {}
+      try {
+        const [pid, pname] = await Promise.all([
+          AsyncStorage.getItem(CARE_LINK_ID),
+          AsyncStorage.getItem(CARE_LINK_NAME),
+        ]);
+        if (pid) setPatientId(pid);
+        if (pname) setPatientName(pname);
+      } catch {}
+    })();
   }, []);
 
-  // ----- fetch metrics (1 vez) + polling cada 15s si hay vínculo -----
+  // Fetch + polling cuando hay vínculo
   useEffect(() => {
     if (!patientId) {
       setMetrics({});
+      setLastAt(null);
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
       return;
     }
@@ -56,8 +75,9 @@ export default function CuidadorScreen({ onCongratulate }) {
         const map = {};
         (Array.isArray(data) ? data : []).forEach(m => { map[m.metric] = m; });
         setMetrics(map);
-      } catch (e) {
-        // silencio: si el backend falla, mantenemos últimos valores
+        setLastAt(new Date());
+      } catch {
+        // mantenemos últimos valores si falla
       }
     };
 
@@ -118,7 +138,11 @@ export default function CuidadorScreen({ onCongratulate }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Código inválido');
       setPatientName(data.patient_name);
-      setPatientId(data.patient_id);
+      setPatientId(String(data.patient_id));
+      await AsyncStorage.multiSet([
+        [CARE_LINK_ID, String(data.patient_id)],
+        [CARE_LINK_NAME, data.patient_name || ''],
+      ]);
       Alert.alert('¡Éxito!', `Cuidas a ${data.patient_name}`);
       setModalVisible(false);
     } catch (e) {
@@ -126,6 +150,17 @@ export default function CuidadorScreen({ onCongratulate }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const unlink = async () => {
+    try {
+      await AsyncStorage.multiRemove([CARE_LINK_ID, CARE_LINK_NAME]);
+      setPatientId(null);
+      setPatientName('');
+      setMetrics({});
+      setLastAt(null);
+      Alert.alert('Listo', 'Vínculo eliminado.');
+    } catch {}
   };
 
   const copyCode = () => {
@@ -138,7 +173,7 @@ export default function CuidadorScreen({ onCongratulate }) {
     Share.share({ message: `Únete como cuidador: ${link}` });
   };
 
-  // ----- formateo seguro -----
+  // Formateo seguro: 0s cuando no hay vínculo, “—” si hay vínculo y falta dato
   const linked = !!patientId;
   const hrText   = linked ? (metrics.heart_rate?.value != null ? `${metrics.heart_rate.value} bpm` : '—') : '0 bpm';
   const bpText   = linked ? (metrics.blood_pressure?.value ? `${metrics.blood_pressure.value} mmHg` : '—') : '0 mmHg';
@@ -178,6 +213,12 @@ export default function CuidadorScreen({ onCongratulate }) {
         ))}
       </View>
 
+      {linked && (
+        <CustomText style={styles.updatedAt}>
+          Última actualización: {lastAt ? lastAt.toLocaleTimeString() : '—'}
+        </CustomText>
+      )}
+
       <CustomButton
         title="🎉  Felicitar"
         onPress={onCongratulate}
@@ -193,14 +234,15 @@ export default function CuidadorScreen({ onCongratulate }) {
               <CustomText style={styles.closeText}>×</CustomText>
             </TouchableOpacity>
 
-            {loading && (
-              <ActivityIndicator size="small" color={theme.colors.accent} style={{ marginVertical: 4 }} />
-            )}
+            {loading && <ActivityIndicator size="small" color={theme.colors.accent} style={{ marginVertical: 4 }} />}
 
             {!loading && mode === null && (
               <>
                 <CustomButton title="Código" onPress={generateCode} variant="primary" style={styles.modalBtn} />
                 <CustomButton title="Unirse" onPress={() => setMode('join')} variant="outline" style={styles.modalBtn} />
+                {linked && (
+                  <CustomButton title="Desvincular" onPress={unlink} variant="outline" style={styles.modalBtn} />
+                )}
               </>
             )}
 
@@ -289,6 +331,12 @@ const styles = StyleSheet.create({
     fontFamily: theme.typography.body.fontFamily,
     color: theme.colors.textSecondary,
   },
+  updatedAt: {
+    alignSelf: 'flex-end',
+    fontSize: theme.fontSizes.xs || 10,
+    color: theme.colors.textSecondary,
+    marginBottom: theme.spacing.xs,
+  },
   congratsBtn: {
     alignSelf: 'flex-end',
     paddingHorizontal: theme.spacing.sm,
@@ -332,7 +380,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.shape.borderRadius,
     padding: theme.spacing.sm,
     marginBottom: theme.spacing.sm,
-    fontFamily: theme.typography.body.fontFamily,
+    fontFamily: theme.typTypography?.body?.fontFamily || theme.typography.body.fontFamily,
     color: theme.colors.textPrimary,
     textAlign: 'center',
   },
