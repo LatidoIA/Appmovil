@@ -1,6 +1,6 @@
 // SaludScreen.js (RAÍZ)
 // UI original + Health Connect: HR, Steps, Sueño, SpO₂, Presión arterial.
-// Auto-refresh 15s, quickSetup, y snapshots a AsyncStorage (sin enviar a Cuidador).
+// Auto-refresh 15s, quickSetup inicial, y SIN pasar métricas a Cuidador (para evitar confusión).
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
@@ -32,7 +32,7 @@ import {
 
 const PROFILE_KEY = '@latido_profile';
 const MEDS_KEY = '@latido_meds';
-const SNAPS_KEY = '@latido_snaps_v1'; // historial local simple
+const REFRESH_MS = 15000;
 
 // ---------- Helpers Vital ----------
 function computeVital(metrics = {}, mood) {
@@ -119,30 +119,13 @@ function formatEta(ms) {
   return `en ${s}s`;
 }
 
-// snapshots: guarda últimos N con diff simple
-async function saveSnapshot(newMetrics) {
-  try {
-    const raw = await AsyncStorage.getItem(SNAPS_KEY);
-    const arr = raw ? JSON.parse(raw) : [];
-    const last = arr[arr.length - 1]?.metrics || null;
-    const diff =
-      !last ||
-      ['heart_rate','steps','sleep','spo2','bp_sys','bp_dia']
-        .some(k => last?.[k] !== newMetrics?.[k]);
-    if (!diff) return;
-
-    const snap = { at: Date.now(), metrics: newMetrics };
-    const next = [...arr, snap].slice(-200); // limita a 200
-    await AsyncStorage.setItem(SNAPS_KEY, JSON.stringify(next));
-  } catch {}
-}
-
 export default function SaludScreen() {
   const navigation = useNavigation();
   const [patient, setPatient] = useState({ id: null });
   const [metrics, setMetrics] = useState({});
   const [mood, setMood] = useState(null);
   const [power, setPower] = useState({ score: 0, color: theme.colors.primary });
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   // Próximo ítem de Farmacia
   const [nextInfo, setNextInfo] = useState(null);
@@ -212,7 +195,7 @@ export default function SaludScreen() {
     }
   }, []);
 
-  // Setup HC (si falta permiso abre el sheet)
+  // Setup HC
   useEffect(() => {
     quickSetup().catch(() => {});
   }, []);
@@ -239,7 +222,7 @@ export default function SaludScreen() {
         };
 
         setMetrics(newMetrics);
-        saveSnapshot(newMetrics).catch(() => {});
+        setLastUpdated(new Date());
         const { score, color } = computeVital(newMetrics, mood);
         setPower({ score, color });
       } catch {
@@ -249,7 +232,7 @@ export default function SaludScreen() {
 
     fetchMetrics();
     intervalRef.current && clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(fetchMetrics, 15000);
+    intervalRef.current = setInterval(fetchMetrics, REFRESH_MS);
     return () => {
       intervalRef.current && clearInterval(intervalRef.current);
     };
@@ -265,7 +248,7 @@ export default function SaludScreen() {
   const metricsList = [
     ['Frecuencia cardíaca', metrics.heart_rate != null ? `${metrics.heart_rate} bpm` : '—'],
     ['Pasos',               metrics.steps != null ? metrics.steps : '—'],
-    ['Sueño',               metrics.sleep != null ? `${metrics.sleep} h` : '—'],
+    ['Sueño (24 h)',        metrics.sleep != null ? `${metrics.sleep} h` : '—'],
     ['SpO₂',                metrics.spo2  != null ? `${metrics.spo2} %` : '—'],
     ['Presión arterial',    metrics.bp_sys != null && metrics.bp_dia != null ? `${metrics.bp_sys}/${metrics.bp_dia} mmHg` : '—'],
   ];
@@ -334,9 +317,13 @@ export default function SaludScreen() {
         ))}
       </View>
 
+      <CustomText style={styles.updatedAt}>
+        Actualizado: {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}
+      </CustomText>
+
       {renderNextPharma()}
 
-      {/* Cuidador: sin datos locales hasta que haya vínculo */}
+      {/* Cuidador NO recibe métricas locales. Mantén tu flujo de vínculo en esa pantalla. */}
       <CuidadorScreen
         onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')}
       />
@@ -352,7 +339,7 @@ const styles = StyleSheet.create({
   moodButton: { marginHorizontal: theme.spacing.sm },
   moodEmoji: { fontSize: theme.fontSizes.lg },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: theme.spacing.md },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: theme.spacing.sm },
   card: {
     width: '48%',
     backgroundColor: theme.colors.surface,
@@ -366,6 +353,8 @@ const styles = StyleSheet.create({
   },
   metricLabel: { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, marginBottom: theme.spacing.xs, fontFamily: theme.typography.body.fontFamily },
   metricValue: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, fontWeight: '700', fontFamily: theme.typography.subtitle.fontFamily },
+
+  updatedAt: { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, marginBottom: theme.spacing.md, textAlign: 'center', fontFamily: theme.typography.body.fontFamily },
 
   nextMedContainer: {
     flexDirection: 'row',
