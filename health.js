@@ -1,6 +1,6 @@
 // health.js (RAÍZ)
 // Health Connect: Steps, HeartRate, OxygenSaturation (SpO2), SleepSession, BloodPressure
-// initialize() único, permisos dinámicos y lectores con fallbacks.
+// initialize() único, permisos y lectores con fallbacks.
 
 import { Platform, Linking } from 'react-native';
 import {
@@ -35,7 +35,7 @@ const PERMS = [
 let _inited = false;
 async function ensureInit() {
   if (_inited || Platform.OS !== 'android') return;
-  await initialize(); // idempotente
+  await initialize();
   _inited = true;
 }
 
@@ -95,7 +95,7 @@ export async function hcOpenSettings() {
   return false;
 }
 
-// ---- Permisos (vía getGrantedPermissions) ----
+// ---- Permisos ----
 export async function getGrantedList() {
   if (Platform.OS !== 'android') return [];
   await ensureInit();
@@ -118,7 +118,6 @@ export async function requestAllPermissions() {
   if (Platform.OS !== 'android') return false;
   await ensureInit();
   try { await requestPermission(PERMS); } catch {}
-  // pequeño reintento
   for (let i = 0; i < 3; i++) {
     const ok = await hasAllPermissions();
     if (ok) return true;
@@ -143,15 +142,12 @@ export async function quickSetup() {
 }
 
 // ---- Lecturas ----
-
-// Pasos HOY
 export async function readTodaySteps() {
   if (Platform.OS !== 'android') return { steps: 0, source: 'na', origins: [], asOf: null };
   await ensureInit();
   const start = startOfTodayIso();
   const end = new Date().toISOString();
 
-  // Aggregate
   try {
     const agg = await aggregateRecord({
       recordType: RT_STEPS,
@@ -165,7 +161,6 @@ export async function readTodaySteps() {
       return { steps, source: 'aggregate', origins: uniq(originsFromAgg), asOf: end };
     }
   } catch {}
-  // Raw
   try {
     const { records = [] } = await readRecords(RT_STEPS, {
       timeRangeFilter: { operator: 'between', startTime: start, endTime: end },
@@ -191,7 +186,6 @@ export async function readTodaySteps() {
   }
 }
 
-// Frecuencia cardíaca — último sample (48h)
 export async function readLatestHeartRate() {
   if (Platform.OS !== 'android') return { bpm: null, at: null, origin: null };
   await ensureInit();
@@ -230,7 +224,6 @@ export async function readLatestHeartRate() {
   }
 }
 
-// SpO₂ — último sample (48h)
 export async function readLatestSpO2() {
   if (Platform.OS !== 'android') return { spo2: null, at: null, origin: null };
   await ensureInit();
@@ -270,7 +263,6 @@ export async function readLatestSpO2() {
   }
 }
 
-// Sueño — total horas últimas 24h
 export async function readSleepLast24h() {
   if (Platform.OS !== 'android') return { hours: null, origins: [], rangeEnd: null };
   await ensureInit();
@@ -301,7 +293,6 @@ export async function readSleepLast24h() {
   }
 }
 
-// Presión arterial — último registro (7 días)
 export async function readLatestBloodPressure() {
   if (Platform.OS !== 'android') return { sys: null, dia: null, at: null, origin: null };
   await ensureInit();
@@ -347,3 +338,6 @@ export async function readLatestBloodPressure() {
     return { sys: null, dia: null, at: null, origin: null };
   }
 }
+
+// Exporta helpers de permisos si los necesitas en la UI
+export { hasAllPermissions, requestAllPermissions };
