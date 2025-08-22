@@ -1,4 +1,6 @@
-// health.js (RAÍZ) — añade origen/tiempo de cada métrica y búsqueda del sample más reciente global
+// health.js (RAÍZ)
+// Fuentes: Health Connect (Android) — Steps, HeartRate, SpO2, SleepSession
+// Mantiene initialize() único, permisos dinámicos y lectores robustos.
 
 import { Platform, Linking } from 'react-native';
 import {
@@ -13,22 +15,21 @@ import {
   openHealthConnectDataManagement,
 } from 'react-native-health-connect';
 
-// Permisos mínimos
+// ---- Tipos HC que usamos ----
+const RT_STEPS = 'Steps';
+const RT_HR = 'HeartRate';
+const RT_SPO2 = 'OxygenSaturation';
+const RT_SLEEP = 'SleepSession';
+
+// ---- Permisos mínimos (solo lectura) ----
 const PERMS = [
-  { accessType: 'read', recordType: 'Steps' },
-  { accessType: 'read', recordType: 'HeartRate' },
+  { accessType: 'read', recordType: RT_STEPS },
+  { accessType: 'read', recordType: RT_HR },
+  { accessType: 'read', recordType: RT_SPO2 },
+  { accessType: 'read', recordType: RT_SLEEP },
 ];
 
-// Mapa legible de estados del SDK
-const statusLabel = {
-  [SdkAvailabilityStatus.SDK_AVAILABLE]: 'SDK_AVAILABLE',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED]: 'PROVIDER_UPDATE_REQUIRED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_DISABLED]: 'PROVIDER_DISABLED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_NOT_INSTALLED]: 'PROVIDER_NOT_INSTALLED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE]: 'SDK_UNAVAILABLE',
-};
-
-// Init único
+// ---- Init único ----
 let _inited = false;
 async function ensureInit() {
   if (_inited) return;
@@ -36,7 +37,7 @@ async function ensureInit() {
   _inited = true;
 }
 
-// Utils
+// ---- Utils ----
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 function startOfTodayIso() {
   const now = new Date();
@@ -46,8 +47,25 @@ function startOfTodayIso() {
 function uniq(arr) {
   return Array.from(new Set((arr || []).filter(Boolean)));
 }
+function overlapMs(aStartIso, aEndIso, bStartIso, bEndIso) {
+  const a0 = new Date(aStartIso).getTime();
+  const a1 = new Date(aEndIso).getTime();
+  const b0 = new Date(bStartIso).getTime();
+  const b1 = new Date(bEndIso).getTime();
+  const start = Math.max(a0, b0);
+  const end = Math.min(a1, b1);
+  return Math.max(0, end - start);
+}
 
-// ---- ESTADO SDK / SETTINGS ----
+// ---- Estado SDK / Settings ----
+const statusLabel = {
+  [SdkAvailabilityStatus.SDK_AVAILABLE]: 'SDK_AVAILABLE',
+  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED]: 'PROVIDER_UPDATE_REQUIRED',
+  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_DISABLED]: 'PROVIDER_DISABLED',
+  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_NOT_INSTALLED]: 'PROVIDER_NOT_INSTALLED',
+  [SdkAvailabilityStatus.SDK_UNAVAILABLE]: 'SDK_UNAVAILABLE',
+};
+
 export async function hcGetStatusDebug() {
   if (Platform.OS !== 'android') return { status: -1, label: 'NOT_ANDROID' };
   try {
@@ -75,7 +93,7 @@ export async function hcOpenSettings() {
   return false;
 }
 
-// ---- PERMISOS (vía getGrantedPermissions) ----
+// ---- Permisos (vía getGrantedPermissions) ----
 export async function getGrantedList() {
   if (Platform.OS !== 'android') return [];
   await ensureInit();
@@ -121,44 +139,35 @@ export async function quickSetup() {
   }
 }
 
-// ---- LECTURAS ----
-// Pasos de HOY + orígenes (packages) y timestamp del último registro visto
+// ---- Lecturas ----
+
+// Pasos HOY (aggregate preferido) + orígenes (si disponible) + timestamp de referencia
 export async function readTodaySteps() {
   if (Platform.OS !== 'android') return { steps: 0, source: 'na', origins: [], asOf: null };
   await ensureInit();
   const start = startOfTodayIso();
   const end = new Date().toISOString();
 
-  // 1) Aggregate (preferido) — intenta exponer dataOrigins si la lib los provee
+  // 1) Aggregate
   try {
     const agg = await aggregateRecord({
-      recordType: 'Steps',
+      recordType: RT_STEPS,
       timeRangeFilter: { operator: 'between', startTime: start, endTime: end },
     });
-    const steps =
-      agg?.count ??
-      agg?.countTotal ??
-      agg?.steps ??
-      null;
-
+    const steps = agg?.count ?? agg?.countTotal ?? agg?.steps ?? null;
     if (typeof steps === 'number') {
       const originsFromAgg = (agg?.dataOrigins || agg?.dataOrigin || []).map(o =>
         o?.packageName ?? o?.package ?? o
       );
-      return {
-        steps,
-        source: 'aggregate',
-        origins: uniq(originsFromAgg),
-        asOf: end,
-      };
+      return { steps, source: 'aggregate', origins: uniq(originsFromAgg), asOf: end };
     }
   } catch {}
-  // 2) Fallback raw + orígenes desde metadata.dataOrigin.packageName
+  // 2) Fallback raw
   try {
-    const { records = [] } = await readRecords('Steps', {
+    const { records = [] } = await readRecords(RT_STEPS, {
       timeRangeFilter: { operator: 'between', startTime: start, endTime: end },
       ascendingOrder: false,
-      pageSize: 200, // suficiente para el día típico
+      pageSize: 200,
     });
     let total = 0;
     const origins = [];
@@ -172,9 +181,7 @@ export async function readTodaySteps() {
         null;
       if (pkg) origins.push(pkg);
       const t = r?.endTime ?? r?.startTime ?? null;
-      if (t && (!latestTs || new Date(t).getTime() > new Date(latestTs).getTime())) {
-        latestTs = t;
-      }
+      if (t && (!latestTs || new Date(t).getTime() > new Date(latestTs).getTime())) latestTs = t;
     }
     return { steps: total, source: 'raw', origins: uniq(origins), asOf: latestTs };
   } catch {
@@ -182,26 +189,20 @@ export async function readTodaySteps() {
   }
 }
 
-// Último HR global más reciente dentro de una ventana (buscamos el sample con mayor timestamp)
+// HR — último sample global más nuevo (48h ventana)
 export async function readLatestHeartRate() {
   if (Platform.OS !== 'android') return { bpm: null, at: null, origin: null };
   await ensureInit();
   try {
     const end = new Date();
-    const start = new Date(end.getTime() - 1000 * 60 * 60 * 48); // 48h
-    const { records = [] } = await readRecords('HeartRate', {
-      timeRangeFilter: {
-        operator: 'between',
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-      },
+    const start = new Date(end.getTime() - 1000 * 60 * 60 * 48);
+    const { records = [] } = await readRecords(RT_HR, {
+      timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
       ascendingOrder: false,
-      pageSize: 100, // escanea suficientes registros recientes
+      pageSize: 100,
     });
 
-    let best = { bpm: null, at: null, origin: null };
-    let bestTs = 0;
-
+    let best = { bpm: null, at: null, origin: null }, bestTs = 0;
     for (const rec of records) {
       const origin =
         rec?.metadata?.dataOrigin?.packageName ??
@@ -213,26 +214,90 @@ export async function readLatestHeartRate() {
         for (const s of rec.samples) {
           const ts = s?.time ? new Date(s.time).getTime() : 0;
           const val = s?.beatsPerMinute ?? s?.bpm ?? null;
-          if (val != null && ts > bestTs) {
-            bestTs = ts;
-            best = { bpm: val, at: s.time, origin };
-          }
+          if (val != null && ts > bestTs) { bestTs = ts; best = { bpm: val, at: s.time, origin }; }
         }
       } else {
-        const ts =
-          rec?.endTime ? new Date(rec.endTime).getTime()
-          : rec?.startTime ? new Date(rec.startTime).getTime()
-          : 0;
+        const ts = rec?.endTime ? new Date(rec.endTime).getTime()
+                : rec?.startTime ? new Date(rec.startTime).getTime() : 0;
         const val = rec?.beatsPerMinute ?? rec?.bpm ?? null;
-        if (val != null && ts > bestTs) {
-          bestTs = ts;
-          best = { bpm: val, at: rec?.endTime ?? rec?.startTime ?? null, origin };
-        }
+        if (val != null && ts > bestTs) { bestTs = ts; best = { bpm: val, at: rec?.endTime ?? rec?.startTime ?? null, origin }; }
       }
     }
-
     return best;
   } catch {
     return { bpm: null, at: null, origin: null };
+  }
+}
+
+// SpO2 — último sample global más nuevo (48h ventana)
+export async function readLatestSpO2() {
+  if (Platform.OS !== 'android') return { spo2: null, at: null, origin: null };
+  await ensureInit();
+  try {
+    const end = new Date();
+    const start = new Date(end.getTime() - 1000 * 60 * 60 * 48);
+    const { records = [] } = await readRecords(RT_SPO2, {
+      timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
+      ascendingOrder: false,
+      pageSize: 100,
+    });
+
+    let best = { spo2: null, at: null, origin: null }, bestTs = 0;
+    for (const rec of records) {
+      const origin =
+        rec?.metadata?.dataOrigin?.packageName ??
+        rec?.metadata?.dataOrigin?.package ??
+        rec?.metadata?.dataOrigin ??
+        null;
+
+      if (Array.isArray(rec?.samples) && rec.samples.length) {
+        for (const s of rec.samples) {
+          const ts = s?.time ? new Date(s.time).getTime() : 0;
+          const val = s?.percentage ?? s?.oxygenSaturation ?? s?.value ?? null;
+          if (val != null && ts > bestTs) { bestTs = ts; best = { spo2: val, at: s.time, origin }; }
+        }
+      } else {
+        const ts = rec?.time ? new Date(rec.time).getTime()
+                : rec?.endTime ? new Date(rec.endTime).getTime()
+                : rec?.startTime ? new Date(rec.startTime).getTime() : 0;
+        const val = rec?.percentage ?? rec?.oxygenSaturation ?? rec?.value ?? null;
+        if (val != null && ts > bestTs) { bestTs = ts; best = { spo2: val, at: rec?.time ?? rec?.endTime ?? rec?.startTime ?? null, origin }; }
+      }
+    }
+    return best;
+  } catch {
+    return { spo2: null, at: null, origin: null };
+  }
+}
+
+// Sueño — total horas último 24h (solapamiento con ventana)
+export async function readSleepLast24h() {
+  if (Platform.OS !== 'android') return { hours: null, origins: [], rangeEnd: null };
+  await ensureInit();
+  try {
+    const end = new Date();
+    const start = new Date(end.getTime() - 1000 * 60 * 60 * 24);
+    const { records = [] } = await readRecords(RT_SLEEP, {
+      timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
+      ascendingOrder: false,
+      pageSize: 200,
+    });
+
+    let totalMs = 0;
+    const origins = [];
+    for (const r of records) {
+      const ms = overlapMs(r.startTime, r.endTime, start.toISOString(), end.toISOString());
+      totalMs += ms;
+      const pkg =
+        r?.metadata?.dataOrigin?.packageName ??
+        r?.metadata?.dataOrigin?.package ??
+        r?.metadata?.dataOrigin ??
+        null;
+      if (pkg) origins.push(pkg);
+    }
+    const hours = totalMs ? Number((totalMs / 3600000).toFixed(1)) : null;
+    return { hours, origins: uniq(origins), rangeEnd: end.toISOString() };
+  } catch {
+    return { hours: null, origins: [], rangeEnd: null };
   }
 }
