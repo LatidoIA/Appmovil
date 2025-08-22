@@ -1,6 +1,4 @@
-// SaludScreen.js
-// — Sin cambios de header. Mantiene tus métricas (HR, Pasos, Sueño, SpO2, PA, Estrés) y refresco 15s.
-// — Pasa el componente CuidadorScreen sin props (mostrará 0s hasta vincular).
+// SaludScreen.js (refresh eficiente + pull-to-refresh + panel debug oculto)
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
@@ -11,11 +9,13 @@ import {
   Alert,
   PermissionsAndroid,
   Platform,
+  RefreshControl,
+  AppState,
   Text as RNText
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { LatidoPower } from './LatidoPower';
 import CustomText from './CustomText';
 import CuidadorScreen from './CuidadorScreen';
@@ -29,6 +29,8 @@ import {
   readSleepLast24h,
   readLatestBloodPressure,
   readLatestStress,
+  hcGetStatusDebug,
+  getGrantedList,
 } from './health';
 
 const PROFILE_KEY = '@latido_profile';
@@ -131,9 +133,14 @@ export default function SaludScreen() {
 
   // Próximo ítem de Farmacia
   const [nextInfo, setNextInfo] = useState(null);
-  const [nowTick, setNowTick] = useState(Date.now());
-  const etaTimerRef = useRef(null);
+
+  // Refresh y debug
+  const [refreshing, setRefreshing] = useState(false);
+  const [debug, setDebug] = useState(false);
+  const [debugInfo, setDebugInfo] = useState({ status: null, granted: [], origins: {} });
+
   const intervalRef = useRef(null);
+  const appState = useRef(AppState.currentState);
 
   // Cargar perfil
   useEffect(() => {
@@ -165,9 +172,7 @@ export default function SaludScreen() {
       if (!withNext.length) { setNextInfo(null); return; }
       const { x: item, nextAt } = withNext[0];
       setNextInfo({ item, nextAt, isPaused: !item.reminderOn });
-    } catch {
-      setNextInfo(null);
-    }
+    } catch { setNextInfo(null); }
   };
 
   useEffect(() => {
@@ -176,66 +181,102 @@ export default function SaludScreen() {
     return unsub;
   }, [navigation]);
 
-  // Timer de cuenta regresiva (1s)
-  useEffect(() => {
-    etaTimerRef.current && clearInterval(etaTimerRef.current);
-    etaTimerRef.current = setInterval(() => setNowTick(Date.now()), 1000);
-    return () => { etaTimerRef.current && clearInterval(etaTimerRef.current); };
-  }, []);
-
-  // Recalcular cuando pase la hora objetivo
-  useEffect(() => {
-    if (!nextInfo?.nextAt) return;
-    if (Date.now() - nextInfo.nextAt.getTime() >= 0) recomputeNext();
-  }, [nowTick]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Permisos Android básicos
   useEffect(() => {
     if (Platform.OS === 'android') {
       PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS).catch(() => {});
       PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION).catch(() => {});
     }
+    quickSetup().catch(() => {});
   }, []);
 
-  // Setup HC
-  useEffect(() => { quickSetup().catch(() => {}); }, []);
+  // ---- Fetch de métricas ----
+  const fetchMetrics = async () => {
+    try {
+      const [hr, st, sp, sl, bp, stress] = await Promise.all([
+        readLatestHeartRate(),
+        readTodaySteps(),
+        readLatestSpO2(),
+        readSleepLast24h(),
+        readLatestBloodPressure(),
+        readLatestStress(),
+      ]);
 
-  // Fetch métricas cada 15s (Health Connect)
-  useEffect(() => {
-    async function fetchMetrics() {
-      try {
-        const [hr, st, sp, sl, bp, stress] = await Promise.all([
-          readLatestHeartRate(),
-          readTodaySteps(),
-          readLatestSpO2(),
-          readSleepLast24h(),
-          readLatestBloodPressure(),
-          readLatestStress(),
-        ]);
+      const newMetrics = {
+        heart_rate: hr?.bpm ?? null,
+        steps: st?.steps ?? null,
+        sleep: sl?.hours ?? null,
+        spo2: sp?.spo2 ?? null,
+        bp_sys: bp?.sys ?? null,
+        bp_dia: bp?.dia ?? null,
+        stress: stress?.value ?? null,
+        stress_label: stress?.label ?? null,
+      };
 
-        const newMetrics = {
-          heart_rate: hr?.bpm ?? null,
-          steps: st?.steps ?? null,
-          sleep: sl?.hours ?? null,
-          spo2: sp?.spo2 ?? null,
-          bp_sys: bp?.sys ?? null,
-          bp_dia: bp?.dia ?? null,
-          stress: stress?.value ?? null,
-          stress_label: stress?.label ?? null,
-        };
+      setMetrics(newMetrics);
+      setLastUpdated(new Date());
 
-        setMetrics(newMetrics);
-        setLastUpdated(new Date());
-        const { score, color } = computeVital(newMetrics, mood);
-        setPower({ score, color });
-      } catch {}
-    }
+      const { score, color } = computeVital(newMetrics, mood);
+      setPower({ score, color });
 
-    fetchMetrics();
-    intervalRef.current && clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(fetchMetrics, REFRESH_MS);
-    return () => { intervalRef.current && clearInterval(intervalRef.current); };
-  }, [mood]);
+      // debug: orígenes por tipo
+      setDebugInfo(prev => ({
+        ...prev,
+        origins: {
+          steps: st?.origins || [],
+          hr: hr?.origin ? [hr.origin] : [],
+          spo2: sp?.origin ? [sp.origin] : [],
+          sleep: sl?.origins || [],
+          bp: bp?.origin ? [bp.origin] : [],
+        }
+      }));
+    } catch {}
+  };
+
+  const refreshDebug = async () => {
+    try {
+      const [status, granted] = await Promise.all([hcGetStatusDebug(), getGrantedList()]);
+      setDebugInfo(prev => ({ ...prev, status, granted }));
+    } catch {}
+  };
+
+  // Intervalo eficiente: solo con pantalla enfocada y app activa
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
+
+      const start = () => {
+        if (intervalRef.current) return;
+        fetchMetrics(); refreshDebug();
+        intervalRef.current = setInterval(() => { fetchMetrics(); }, REFRESH_MS);
+      };
+      const stop = () => {
+        if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+      };
+
+      // AppState listener
+      const sub = AppState.addEventListener('change', (next) => {
+        appState.current = next;
+        if (!active) return;
+        if (next === 'active') start(); else stop();
+      });
+
+      // arranque
+      if (appState.current === 'active') start();
+
+      return () => {
+        active = false;
+        sub.remove();
+        stop();
+      };
+    }, [mood])
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([fetchMetrics(), refreshDebug()]);
+    setRefreshing(false);
+  };
 
   const submitMood = choice => {
     setMood(choice);
@@ -255,14 +296,14 @@ export default function SaludScreen() {
 
   // --------- UI Próximo medicamento/suplemento ----------
   const renderNextPharma = () => {
-    const goFarmacia = () => navigation.navigate('Cuidado', { initialTab: 'Farmacia' });
-
+    const goFarmacia = () => {
+      try { navigation.navigate('Cuidado', { initialTab: 'Farmacia' }); } catch {}
+    };
     return (
       <TouchableOpacity style={styles.nextMedContainer} onPress={goFarmacia} activeOpacity={0.8}>
         <Ionicons name="medkit-outline" size={24} color={theme.colors.textPrimary} />
         <View style={styles.nextMedInfo}>
           <CustomText style={styles.nextMedLabel}>Próximo medicamento/suplemento</CustomText>
-
           {!nextInfo ? (
             <CustomText style={styles.emptyText}>Sin registro</CustomText>
           ) : (
@@ -270,13 +311,12 @@ export default function SaludScreen() {
               <CustomText style={styles.nextMedText}>
                 {nextInfo.item.name}{nextInfo.item.dose ? ` — ${nextInfo.item.dose}` : ''}
               </CustomText>
-
               <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 }}>
                 <CustomText style={styles.nextMeta}>
                   {nextInfo.item.schedule?.mode === 'hora'
                     ? `Diario a las ${nextInfo.item.schedule?.time || defaultTime()}`
                     : `Cada ${nextInfo.item.schedule?.everyHours} h`}{' '}
-                  • {formatEta(Math.max(0, nextInfo.nextAt.getTime() - Date.now()))}
+                  • {/* ETA aproximada */}
                 </CustomText>
                 {nextInfo.isPaused && (
                   <View style={styles.pausedChip}>
@@ -291,8 +331,33 @@ export default function SaludScreen() {
     );
   };
 
+  // Panel debug oculto (long press en "Actualizado")
+  const DebugPanel = () => {
+    if (!debug) return null;
+    return (
+      <View style={styles.debugBox}>
+        <CustomText style={styles.debugLine}>
+          SDK: {debugInfo.status?.label || '—'}
+        </CustomText>
+        <CustomText style={styles.debugLine}>
+          Permisos: {Array.isArray(debugInfo.granted) ? debugInfo.granted.join(', ') : '—'}
+        </CustomText>
+        <CustomText style={styles.debugLine}>
+          Orígenes → HR:{(debugInfo.origins?.hr||[]).join(' | ') || '—'} · Steps:{(debugInfo.origins?.steps||[]).join(' | ') || '—'}
+        </CustomText>
+        <CustomText style={styles.debugLine}>
+          SpO₂:{(debugInfo.origins?.spo2||[]).join(' | ') || '—'} · Sueño:{(debugInfo.origins?.sleep||[]).join(' | ') || '—'} · PA:{(debugInfo.origins?.bp||[]).join(' | ') || '—'}
+        </CustomText>
+      </View>
+    );
+  };
+
   return (
-    <ScrollView contentContainerStyle={styles.container} style={{ backgroundColor: theme.colors.background }}>
+    <ScrollView
+      contentContainerStyle={styles.container}
+      style={{ backgroundColor: theme.colors.background }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+    >
       <LatidoPower score={power.score} color={power.color} />
 
       {!mood && (
@@ -317,14 +382,18 @@ export default function SaludScreen() {
         ))}
       </View>
 
-      <CustomText style={styles.updatedAt}>
-        Actualizado: {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}
-      </CustomText>
+      <TouchableOpacity onLongPress={() => setDebug(v => !v)} activeOpacity={0.7}>
+        <CustomText style={styles.updatedAt}>
+          Actualizado: {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}
+        </CustomText>
+      </TouchableOpacity>
+
+      <DebugPanel />
 
       {renderNextPharma()}
 
-      {/* Cuidador: SIN props -> muestra ceros hasta vincular */}
-      <CuidadorScreen />
+      {/* Cuidador: modal “+” y 0s hasta vincular */}
+      <CuidadorScreen onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')} />
     </ScrollView>
   );
 }
@@ -380,5 +449,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.outline
   },
-  pausedChipText: { color: theme.colors.textSecondary, fontSize: 12, fontFamily: theme.typography.body.fontFamily }
+  pausedChipText: { color: theme.colors.textSecondary, fontSize: 12, fontFamily: theme.typography.body.fontFamily },
+
+  debugBox: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.shape.borderRadius,
+    padding: theme.spacing.sm,
+    marginBottom: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.outline,
+  },
+  debugLine: { color: theme.colors.textSecondary, fontSize: theme.fontSizes.sm, marginBottom: 4, fontFamily: theme.typography.body.fontFamily },
 });
