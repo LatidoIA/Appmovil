@@ -1,6 +1,6 @@
 // SaludScreen.js (RAÍZ)
-// Fusión con UI original + Health Connect: HR, Steps, Sueño, SpO2, Presión arterial.
-// Auto-refresh 15s, quickSetup inicial, y pasa métricas al Cuidador via prop.
+// UI original + Health Connect: HR, Steps, Sueño, SpO₂, Presión arterial.
+// Auto-refresh 15s, quickSetup, y snapshots a AsyncStorage (sin enviar a Cuidador).
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
@@ -32,6 +32,7 @@ import {
 
 const PROFILE_KEY = '@latido_profile';
 const MEDS_KEY = '@latido_meds';
+const SNAPS_KEY = '@latido_snaps_v1'; // historial local simple
 
 // ---------- Helpers Vital ----------
 function computeVital(metrics = {}, mood) {
@@ -118,6 +119,24 @@ function formatEta(ms) {
   return `en ${s}s`;
 }
 
+// snapshots: guarda últimos N con diff simple
+async function saveSnapshot(newMetrics) {
+  try {
+    const raw = await AsyncStorage.getItem(SNAPS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    const last = arr[arr.length - 1]?.metrics || null;
+    const diff =
+      !last ||
+      ['heart_rate','steps','sleep','spo2','bp_sys','bp_dia']
+        .some(k => last?.[k] !== newMetrics?.[k]);
+    if (!diff) return;
+
+    const snap = { at: Date.now(), metrics: newMetrics };
+    const next = [...arr, snap].slice(-200); // limita a 200
+    await AsyncStorage.setItem(SNAPS_KEY, JSON.stringify(next));
+  } catch {}
+}
+
 export default function SaludScreen() {
   const navigation = useNavigation();
   const [patient, setPatient] = useState({ id: null });
@@ -193,7 +212,7 @@ export default function SaludScreen() {
     }
   }, []);
 
-  // Setup HC (si falta permiso abrirá el sheet)
+  // Setup HC (si falta permiso abre el sheet)
   useEffect(() => {
     quickSetup().catch(() => {});
   }, []);
@@ -217,25 +236,14 @@ export default function SaludScreen() {
           spo2: sp?.spo2 ?? null,
           bp_sys: bp?.sys ?? null,
           bp_dia: bp?.dia ?? null,
-
-          // meta (opcional para depurar o enviar a cuidador)
-          meta: {
-            hrAt: hr?.at ?? null,
-            hrOrigin: hr?.origin ?? null,
-            stepsAsOf: st?.asOf ?? null,
-            stepOrigins: st?.origins ?? [],
-            spo2At: sp?.at ?? null,
-            spo2Origin: sp?.origin ?? null,
-            bpAt: bp?.at ?? null,
-            bpOrigin: bp?.origin ?? null,
-          }
         };
 
         setMetrics(newMetrics);
+        saveSnapshot(newMetrics).catch(() => {});
         const { score, color } = computeVital(newMetrics, mood);
         setPower({ score, color });
       } catch {
-        // métricas se mantienen
+        // silent
       }
     }
 
@@ -328,9 +336,8 @@ export default function SaludScreen() {
 
       {renderNextPharma()}
 
-      {/* Cuidador: ahora recibe métricas actuales (fallback dentro del componente) */}
+      {/* Cuidador: sin datos locales hasta que haya vínculo */}
       <CuidadorScreen
-        metrics={metrics}
         onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')}
       />
     </ScrollView>
@@ -386,5 +393,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.outline
   },
-  pausedChipText: { color: theme.colors.textSecondary, fontSize: 12, fontFamily: theme.typTypography?.body?.fontFamily || theme.typography.body.fontFamily }
+  pausedChipText: { color: theme.colors.textSecondary, fontSize: 12, fontFamily: theme.typography.body.fontFamily }
 });
