@@ -191,7 +191,7 @@ export async function readTodaySteps() {
   }
 }
 
-// HR — último sample global más nuevo (48h ventana)
+// HR — último sample global más nuevo (48h)
 export async function readLatestHeartRate() {
   if (Platform.OS !== 'android') return { bpm: null, at: null, origin: null };
   await ensureInit();
@@ -272,7 +272,7 @@ export async function readLatestSpO2() {
   }
 }
 
-// Sueño — total horas últimas 24h (usa solape de ventana)
+// Sueño — total horas últimas 24h
 export async function readSleepLast24h() {
   if (Platform.OS !== 'android') return { hours: null, origins: [], rangeEnd: null };
   await ensureInit();
