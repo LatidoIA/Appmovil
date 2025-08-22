@@ -1,6 +1,6 @@
 // health.js (RAÍZ)
-// Health Connect: Steps, HeartRate, OxygenSaturation (SpO2), SleepSession, BloodPressure
-// initialize() único, permisos y lectores con fallbacks.
+// Health Connect: Steps, HeartRate, OxygenSaturation (SpO2), SleepSession, BloodPressure, Stress(opcional)
+// initialize() único, permisos y lectores con fallbacks seguros.
 
 import { Platform, Linking } from 'react-native';
 import {
@@ -21,6 +21,8 @@ const RT_HR = 'HeartRate';
 const RT_SPO2 = 'OxygenSaturation';
 const RT_SLEEP = 'SleepSession';
 const RT_BP = 'BloodPressure';
+// OJO: Stress puede no existir en todos los dispositivos/versiones
+const RT_STRESS = 'Stress';
 
 // ---- Permisos (solo lectura) ----
 const PERMS = [
@@ -29,6 +31,7 @@ const PERMS = [
   { accessType: 'read', recordType: RT_SPO2 },
   { accessType: 'read', recordType: RT_SLEEP },
   { accessType: 'read', recordType: RT_BP },
+  // No incluimos Stress aquí para evitar fallos si el tipo no existe en el dispositivo.
 ];
 
 // ---- Init único ----
@@ -336,5 +339,53 @@ export async function readLatestBloodPressure() {
     return best;
   } catch {
     return { sys: null, dia: null, at: null, origin: null };
+  }
+}
+
+// ---- Estrés (opcional) ----
+export async function readLatestStress() {
+  if (Platform.OS !== 'android') return { value: null, label: null, at: null, origin: null };
+  await ensureInit();
+  try {
+    const end = new Date();
+    const start = new Date(end.getTime() - 1000 * 60 * 60 * 48);
+    const { records = [] } = await readRecords(RT_STRESS, {
+      timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
+      ascendingOrder: false,
+      pageSize: 100,
+    });
+
+    let best = { value: null, label: null, at: null, origin: null }, bestTs = 0;
+    for (const rec of records) {
+      const origin =
+        rec?.metadata?.dataOrigin?.packageName ??
+        rec?.metadata?.dataOrigin?.package ??
+        rec?.metadata?.dataOrigin ?? null;
+
+      // Intentamos campos comunes
+      const val =
+        rec?.value ?? rec?.level ?? rec?.score ?? null;
+      const ts =
+        rec?.time ? new Date(rec.time).getTime()
+        : rec?.endTime ? new Date(rec.endTime).getTime()
+        : rec?.startTime ? new Date(rec.startTime).getTime() : 0;
+
+      if (val != null && ts > bestTs) {
+        bestTs = ts;
+        let label = null;
+        const n = Number(val);
+        if (!Number.isNaN(n)) {
+          if (n <= 25) label = 'Relajado';
+          else if (n <= 50) label = 'Normal';
+          else if (n <= 75) label = 'Elevado';
+          else label = 'Alto';
+        }
+        best = { value: n || val, label, at: rec?.time ?? rec?.endTime ?? rec?.startTime ?? null, origin };
+      }
+    }
+    return best;
+  } catch {
+    // Si el tipo no existe o no hay permiso, devolvemos vacío
+    return { value: null, label: null, at: null, origin: null };
   }
 }
