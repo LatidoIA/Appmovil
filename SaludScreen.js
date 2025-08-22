@@ -1,6 +1,6 @@
 // SaludScreen.js (RAÍZ)
-// UI original + Health Connect: HR, Steps, Sueño (24h), SpO₂, Presión arterial.
-// Auto-refresh 15s. No toca la navegación del Cuidador.
+// UI original + Health Connect: HR, Steps, Sueño (24h), SpO₂, Presión arterial, Estrés(opcional).
+// Auto-refresh 15s. Mantiene tu flujo (Farmacia y Cuidador).
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
@@ -28,6 +28,7 @@ import {
   readLatestSpO2,
   readSleepLast24h,
   readLatestBloodPressure,
+  readLatestStress,
 } from './health';
 
 const PROFILE_KEY = '@latido_profile';
@@ -41,6 +42,7 @@ function computeVital(metrics = {}, mood) {
   if (metrics.steps      != null) vals.push(Math.min((metrics.steps / 10000) * 100, 100));
   if (metrics.sleep      != null) vals.push(Math.min((metrics.sleep / 8) * 100, 100));
   if (metrics.spo2       != null) vals.push(metrics.spo2);
+  if (metrics.stress     != null) vals.push(Math.max(0, 100 - metrics.stress)); // a menos estrés, mejor
   if (mood === '😊') vals.push(100);
   else if (mood === '😐') vals.push(50);
   else if (mood === '😔') vals.push(0);
@@ -202,12 +204,13 @@ export default function SaludScreen() {
   useEffect(() => {
     async function fetchMetrics() {
       try {
-        const [hr, st, sp, sl, bp] = await Promise.all([
+        const [hr, st, sp, sl, bp, stress] = await Promise.all([
           readLatestHeartRate(),
           readTodaySteps(),
           readLatestSpO2(),
           readSleepLast24h(),
-          readLatestBloodPressure()
+          readLatestBloodPressure(),
+          readLatestStress(), // opcional, seguro en catch
         ]);
 
         const newMetrics = {
@@ -217,6 +220,8 @@ export default function SaludScreen() {
           spo2: sp?.spo2 ?? null,
           bp_sys: bp?.sys ?? null,
           bp_dia: bp?.dia ?? null,
+          stress: stress?.value ?? null,
+          stress_label: stress?.label ?? null,
         };
 
         setMetrics(newMetrics);
@@ -245,6 +250,7 @@ export default function SaludScreen() {
     ['Sueño (24 h)',        metrics.sleep != null ? `${metrics.sleep} h` : '—'],
     ['SpO₂',                metrics.spo2  != null ? `${metrics.spo2} %` : '—'],
     ['Presión arterial',    metrics.bp_sys != null && metrics.bp_dia != null ? `${metrics.bp_sys}/${metrics.bp_dia} mmHg` : '—'],
+    ['Estrés',              metrics.stress_label ?? (metrics.stress != null ? `${metrics.stress}` : '—')],
   ];
 
   // --------- UI Próximo medicamento/suplemento ----------
@@ -317,10 +323,19 @@ export default function SaludScreen() {
 
       {renderNextPharma()}
 
-      {/* El botón “+” vive dentro del propio card de Cuidador (abajo). */}
       <CuidadorScreen
-        onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')}
-        onLink={() => navigation.navigate('Vincular')}
+        onLink={() => {
+          // Si tu ruta original se llama diferente, la cubrimos con varios intentos.
+          const tries = [
+            () => navigation.navigate('CuidadorVincular'),
+            () => navigation.navigate('Vincular'),
+            () => navigation.navigate('Vinculo'),
+            () => navigation.navigate('LinkPaciente'),
+            () => navigation.navigate('VincularPaciente'),
+            () => navigation.navigate('Cuidado', { screen: 'Vincular' }),
+          ];
+          for (const t of tries) { try { t(); return; } catch {} }
+        }}
       />
     </ScrollView>
   );
