@@ -1,16 +1,23 @@
 // CuidadorScreen.js
-// Mantén tu flujo original (el botón “+” lo maneja tu navegación). Aquí no forzamos cabecera ni CTA nuevos.
-// Placeholder hasta conectar suscripción remota.
+// Recupera el “+” **dentro** del card (esquina superior derecha) para vincular.
+// NO muestra métricas locales hasta que haya vínculo.
 
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import CustomText from './CustomText';
 import theme from './theme';
 
-export default function CuidadorScreen({ onCongratulate }) {
+export default function CuidadorScreen({ onCongratulate, onLink }) {
   return (
     <View style={styles.wrapper}>
-      <CustomText style={styles.title}>Cuidador</CustomText>
+      <View style={styles.headerRow}>
+        <CustomText style={styles.title}>Cuidador</CustomText>
+        <TouchableOpacity onPress={onLink} style={styles.iconBtn} activeOpacity={0.8}>
+          <Ionicons name="add" size={22} color={theme.colors.textPrimary} />
+        </TouchableOpacity>
+      </View>
+
       <CustomText style={styles.subtitle}>Paciente</CustomText>
 
       <View style={styles.emptyBox}>
@@ -32,8 +39,10 @@ const styles = StyleSheet.create({
       android: { elevation: 2 }
     })
   },
-  title: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, marginBottom: 4, fontFamily: theme.typography.body.fontFamily },
-  subtitle: { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, marginBottom: theme.spacing.sm, fontFamily: theme.typography.body.fontFamily },
+  headerRow: { flexDirection: 'row', alignItems: 'center' },
+  iconBtn: { marginLeft: 'auto', paddingHorizontal: 6, paddingVertical: 4 },
+  title: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, fontFamily: theme.typography.body.fontFamily },
+  subtitle: { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, marginTop: 4, marginBottom: theme.spacing.sm, fontFamily: theme.typography.body.fontFamily },
 
   emptyBox: {
     backgroundColor: theme.colors.background,
@@ -44,5 +53,5 @@ const styles = StyleSheet.create({
     minHeight: 96
   },
   emptyText: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, fontFamily: theme.typography.body.fontFamily },
-  emptySub: { marginTop: 4, fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, textAlign: 'center', fontFamily: theme.typography.body.fontFamily },
+  emptySub: { marginTop: 4, fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, textAlign: 'center', fontFamily: theme.typography.body.fontFamily }
 });
