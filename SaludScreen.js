@@ -1,6 +1,6 @@
 // SaludScreen.js (RAÍZ)
 // UI original + Health Connect: HR, Steps, Sueño (24h), SpO₂, Presión arterial.
-// Auto-refresh 15s, quickSetup inicial. NO toca el flujo de Cuidador (se mantiene tu “+” externo).
+// Auto-refresh 15s. No toca la navegación del Cuidador.
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
@@ -23,8 +23,6 @@ import theme from './theme';
 
 import {
   quickSetup,
-  hasAllPermissions,
-  requestAllPermissions,
   readTodaySteps,
   readLatestHeartRate,
   readLatestSpO2,
@@ -52,7 +50,7 @@ function computeVital(metrics = {}, mood) {
   return { score: avg, color };
 }
 
-// ---------- Helpers Farmacia (tiempos) ----------
+// ---------- Helpers Farmacia ----------
 function defaultTime() {
   const d = new Date();
   const hh = String(d.getHours()).padStart(2, '0');
@@ -197,26 +195,19 @@ export default function SaludScreen() {
     }
   }, []);
 
-  // Setup HC + permisos (incluye SpO2/Sueño/PA)
-  useEffect(() => {
-    (async () => {
-      const ok = await quickSetup();
-      if (!ok) return;
-      const hasAll = await hasAllPermissions();
-      if (!hasAll) await requestAllPermissions();
-    })().catch(() => {});
-  }, []);
+  // Setup HC
+  useEffect(() => { quickSetup().catch(() => {}); }, []);
 
   // Fetch métricas cada 15s (Health Connect)
   useEffect(() => {
     async function fetchMetrics() {
       try {
         const [hr, st, sp, sl, bp] = await Promise.all([
-          readLatestHeartRate(),   // { bpm, at, origin }
-          readTodaySteps(),        // { steps, asOf, origins }
-          readLatestSpO2(),        // { spo2, at, origin }
-          readSleepLast24h(),      // { hours }
-          readLatestBloodPressure()// { sys, dia, at, origin }
+          readLatestHeartRate(),
+          readTodaySteps(),
+          readLatestSpO2(),
+          readSleepLast24h(),
+          readLatestBloodPressure()
         ]);
 
         const newMetrics = {
@@ -232,17 +223,13 @@ export default function SaludScreen() {
         setLastUpdated(new Date());
         const { score, color } = computeVital(newMetrics, mood);
         setPower({ score, color });
-      } catch {
-        // silent
-      }
+      } catch {}
     }
 
     fetchMetrics();
     intervalRef.current && clearInterval(intervalRef.current);
     intervalRef.current = setInterval(fetchMetrics, REFRESH_MS);
-    return () => {
-      intervalRef.current && clearInterval(intervalRef.current);
-    };
+    return () => { intervalRef.current && clearInterval(intervalRef.current); };
   }, [mood]);
 
   const submitMood = choice => {
@@ -330,8 +317,11 @@ export default function SaludScreen() {
 
       {renderNextPharma()}
 
-      {/* No alteramos tu flujo original de Cuidador (el botón “+” vive en la navegación de esa ruta). */}
-      <CuidadorScreen onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')} />
+      {/* El botón “+” vive dentro del propio card de Cuidador (abajo). */}
+      <CuidadorScreen
+        onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')}
+        onLink={() => navigation.navigate('Vincular')}
+      />
     </ScrollView>
   );
 }
