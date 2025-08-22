@@ -1,6 +1,6 @@
 // health.js (RAÍZ)
-// Lecturas desde Health Connect: Steps, HeartRate, OxygenSaturation, SleepSession, BloodPressure.
-// Permisos dinámicos + initialize() único + funciones con fallbacks.
+// Health Connect: Steps, HeartRate, OxygenSaturation (SpO2), SleepSession, BloodPressure
+// initialize() único, permisos dinámicos y lectores con fallbacks.
 
 import { Platform, Linking } from 'react-native';
 import {
@@ -34,7 +34,7 @@ const PERMS = [
 // ---- Init único ----
 let _inited = false;
 async function ensureInit() {
-  if (_inited) return;
+  if (_inited || Platform.OS !== 'android') return;
   await initialize(); // idempotente
   _inited = true;
 }
@@ -118,10 +118,11 @@ export async function requestAllPermissions() {
   if (Platform.OS !== 'android') return false;
   await ensureInit();
   try { await requestPermission(PERMS); } catch {}
+  // pequeño reintento
   for (let i = 0; i < 3; i++) {
     const ok = await hasAllPermissions();
     if (ok) return true;
-    await sleep(400);
+    await sleep(300);
   }
   return false;
 }
@@ -143,14 +144,14 @@ export async function quickSetup() {
 
 // ---- Lecturas ----
 
-// Pasos HOY (aggregate preferido) + orígenes + timestamp de referencia
+// Pasos HOY
 export async function readTodaySteps() {
   if (Platform.OS !== 'android') return { steps: 0, source: 'na', origins: [], asOf: null };
   await ensureInit();
   const start = startOfTodayIso();
   const end = new Date().toISOString();
 
-  // 1) Aggregate
+  // Aggregate
   try {
     const agg = await aggregateRecord({
       recordType: RT_STEPS,
@@ -164,7 +165,7 @@ export async function readTodaySteps() {
       return { steps, source: 'aggregate', origins: uniq(originsFromAgg), asOf: end };
     }
   } catch {}
-  // 2) Fallback raw
+  // Raw
   try {
     const { records = [] } = await readRecords(RT_STEPS, {
       timeRangeFilter: { operator: 'between', startTime: start, endTime: end },
@@ -179,11 +180,10 @@ export async function readTodaySteps() {
       const pkg =
         r?.metadata?.dataOrigin?.packageName ??
         r?.metadata?.dataOrigin?.package ??
-        r?.metadata?.dataOrigin ??
-        null;
+        r?.metadata?.dataOrigin ?? null;
       if (pkg) origins.push(pkg);
       const t = r?.endTime ?? r?.startTime ?? null;
-      if (t && (!latestTs || new Date(t).getTime() > new Date(latestTs).getTime())) latestTs = t;
+      if (t && (!latestTs || new Date(t) > new Date(latestTs))) latestTs = t;
     }
     return { steps: total, source: 'raw', origins: uniq(origins), asOf: latestTs };
   } catch {
@@ -191,7 +191,7 @@ export async function readTodaySteps() {
   }
 }
 
-// HR — último sample global más nuevo (48h)
+// Frecuencia cardíaca — último sample (48h)
 export async function readLatestHeartRate() {
   if (Platform.OS !== 'android') return { bpm: null, at: null, origin: null };
   await ensureInit();
@@ -209,8 +209,7 @@ export async function readLatestHeartRate() {
       const origin =
         rec?.metadata?.dataOrigin?.packageName ??
         rec?.metadata?.dataOrigin?.package ??
-        rec?.metadata?.dataOrigin ??
-        null;
+        rec?.metadata?.dataOrigin ?? null;
 
       if (Array.isArray(rec?.samples) && rec.samples.length) {
         for (const s of rec.samples) {
@@ -231,7 +230,7 @@ export async function readLatestHeartRate() {
   }
 }
 
-// SpO₂ — último sample global más nuevo (48h)
+// SpO₂ — último sample (48h)
 export async function readLatestSpO2() {
   if (Platform.OS !== 'android') return { spo2: null, at: null, origin: null };
   await ensureInit();
@@ -249,8 +248,7 @@ export async function readLatestSpO2() {
       const origin =
         rec?.metadata?.dataOrigin?.packageName ??
         rec?.metadata?.dataOrigin?.package ??
-        rec?.metadata?.dataOrigin ??
-        null;
+        rec?.metadata?.dataOrigin ?? null;
 
       if (Array.isArray(rec?.samples) && rec.samples.length) {
         for (const s of rec.samples) {
@@ -293,8 +291,7 @@ export async function readSleepLast24h() {
       const pkg =
         r?.metadata?.dataOrigin?.packageName ??
         r?.metadata?.dataOrigin?.package ??
-        r?.metadata?.dataOrigin ??
-        null;
+        r?.metadata?.dataOrigin ?? null;
       if (pkg) origins.push(pkg);
     }
     const hours = totalMs ? Number((totalMs / 3600000).toFixed(1)) : null;
@@ -304,7 +301,7 @@ export async function readSleepLast24h() {
   }
 }
 
-// Presión arterial — último registro global más nuevo (7 días)
+// Presión arterial — último registro (7 días)
 export async function readLatestBloodPressure() {
   if (Platform.OS !== 'android') return { sys: null, dia: null, at: null, origin: null };
   await ensureInit();
@@ -323,20 +320,17 @@ export async function readLatestBloodPressure() {
       const origin =
         rec?.metadata?.dataOrigin?.packageName ??
         rec?.metadata?.dataOrigin?.package ??
-        rec?.metadata?.dataOrigin ??
-        null;
+        rec?.metadata?.dataOrigin ?? null;
 
       const sys =
         rec?.systolic?.mmHg ??
         rec?.systolic?.millimetersOfMercury ??
-        rec?.systolic?.value ??
-        null;
+        rec?.systolic?.value ?? null;
 
       const dia =
         rec?.diastolic?.mmHg ??
         rec?.diastolic?.millimetersOfMercury ??
-        rec?.diastolic?.value ??
-        null;
+        rec?.diastolic?.value ?? null;
 
       const ts = rec?.time ? new Date(rec.time).getTime()
               : rec?.endTime ? new Date(rec.endTime).getTime()
