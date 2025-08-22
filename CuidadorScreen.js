@@ -1,14 +1,36 @@
 // CuidadorScreen.js
-// Sin datos locales: muestra "Sin vínculo" y opciones mínimas.
-// Cuando integremos el servicio de vínculo, aquí haremos subscribe a las métricas remotas.
+// Vuelve al flujo original: botón de vinculación como "+" en la esquina superior (headerRight).
+// NO muestra métricas locales; placeholder hasta que haya vínculo real.
 
-import React from 'react';
+import React, { useLayoutEffect } from 'react';
 import { View, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import CustomText from './CustomText';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import CustomText from './CustomText';
 import theme from './theme';
 
 export default function CuidadorScreen({ onCongratulate, onLink }) {
+  const navigation = useNavigation();
+
+  const handleLink = () => {
+    if (typeof onLink === 'function') {
+      onLink();
+    } else {
+      // fallback genérico: ajusta al nombre real de tu ruta de vinculación si difiere
+      try { navigation.navigate('Vincular'); } catch {}
+    }
+  };
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity onPress={handleLink} style={{ paddingHorizontal: 12, paddingVertical: 4 }}>
+          <Ionicons name="add" size={24} color={theme.colors.primary} />
+        </TouchableOpacity>
+      )
+    });
+  }, [navigation]);
+
   return (
     <View style={styles.wrapper}>
       <CustomText style={styles.title}>Cuidador</CustomText>
@@ -16,15 +38,7 @@ export default function CuidadorScreen({ onCongratulate, onLink }) {
 
       <View style={styles.emptyBox}>
         <CustomText style={styles.emptyText}>Sin vínculo</CustomText>
-        <CustomText style={styles.emptySub}>Vincula un paciente para ver sus métricas en tiempo real.</CustomText>
-        <TouchableOpacity
-          onPress={onLink}
-          style={styles.cta}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="link-outline" size={16} color={theme.colors.onPrimary} />
-          <CustomText style={styles.ctaText}>Vincular</CustomText>
-        </TouchableOpacity>
+        <CustomText style={styles.emptySub}>Usa el “+” (arriba) para vincular un paciente con código.</CustomText>
       </View>
 
       <TouchableOpacity
@@ -65,8 +79,7 @@ const styles = StyleSheet.create({
   emptySub: { marginTop: 4, fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, textAlign: 'center', fontFamily: theme.typography.body.fontFamily },
 
   cta: {
-    marginTop: theme.spacing.xs,
-    alignSelf: 'center',
+    alignSelf: 'flex-start',
     backgroundColor: theme.colors.primary,
     borderRadius: 999,
     paddingHorizontal: 12,
