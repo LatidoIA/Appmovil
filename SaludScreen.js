@@ -1,260 +1,379 @@
-// SaludScreen.js (RAÍZ) — auto-refresco cada 15s cuando la pantalla está enfocada y la app activa.
-// Sin botón "Actualizar datos". Muestra "Actualizado: hh:mm:ss".
+// SaludScreen.js (RAÍZ)
+// Fusión: UI original + motor de métricas con Health Connect + auto-refresh 15s.
+// Mantiene helpers de Farmacia, ánimo, LatidoPower y Cuidador.
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, Button, ActivityIndicator, AppState } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
 import {
-  hcGetStatusDebug,
-  hcOpenSettings,
+  View,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  PermissionsAndroid,
+  Platform,
+  Text as RNText
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import { LatidoPower } from './LatidoPower';
+import CustomText from './CustomText';
+import CuidadorScreen from './CuidadorScreen';
+import theme from './theme';
+
+// --- Health Connect (reemplaza SamsungHealth) ---
+import {
+  quickSetup,
   readTodaySteps,
   readLatestHeartRate,
-  quickSetup,
-  hasAllPermissions,
-  getGrantedList,
-  areAllGranted,
+  readLatestSpO2,
+  readSleepLast24h,
 } from './health';
-import { useFocusEffect } from '@react-navigation/native';
 
-function fmtTime(iso) {
-  if (!iso) return '—';
-  try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  } catch {
-    return iso;
-  }
-}
-function fmtClock(d) {
-  if (!d) return '—';
-  try {
-    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  } catch {
-    return '—';
-  }
+const PROFILE_KEY = '@latido_profile';
+const MEDS_KEY = '@latido_meds';
+
+// ---------- Helpers Vital ----------
+function computeVital(metrics = {}, mood) {
+  const vals = [];
+  if (metrics.heart_rate != null) vals.push(Math.min((metrics.heart_rate / 180) * 100, 100));
+  if (metrics.steps      != null) vals.push(Math.min((metrics.steps / 10000) * 100, 100));
+  if (metrics.sleep      != null) vals.push(Math.min((metrics.sleep / 8) * 100, 100));
+  if (metrics.spo2       != null) vals.push(metrics.spo2);
+  if (mood === '😊') vals.push(100);
+  else if (mood === '😐') vals.push(50);
+  else if (mood === '😔') vals.push(0);
+
+  const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+  const color = avg > 75 ? theme.colors.accent : avg > 50 ? '#FDB827' : theme.colors.error;
+  return { score: avg, color };
 }
 
-const INTERVAL_MS = 15000;
+// ---------- Helpers Farmacia (tiempos) ----------
+function defaultTime() {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+function normalizeToHHMM(input) {
+  const digits = String(input || '').replace(/\D/g, '').slice(0, 4);
+  if (!digits) return null;
+  let hh = '00', mm = '00';
+  if (digits.length === 1) { hh = `0${digits}`; mm = '00'; }
+  else if (digits.length === 2) { hh = digits; mm = '00'; }
+  else if (digits.length === 3) { hh = `0${digits[0]}`; mm = digits.slice(1); }
+  else { hh = digits.slice(0, 2); mm = digits.slice(2, 4); }
+  const h = Math.max(0, Math.min(23, parseInt(hh, 10)));
+  const m = Math.max(0, Math.min(59, parseInt(mm, 10)));
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+function parseHHMMFlexible(s) {
+  const norm = s?.includes(':') ? s : normalizeToHHMM(s);
+  if (!norm) return null;
+  const [hh, mm] = norm.split(':').map(n => parseInt(n, 10));
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  return { hh, mm };
+}
+function nextDateForDailyTime(hh, mm) {
+  const now = new Date();
+  const todayAt = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
+  if (now.getTime() <= todayAt.getTime()) return todayAt;
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, hh, mm, 0, 0);
+}
+function secondsUntilNextFromStart(startHHMM, intervalHours) {
+  const now = new Date();
+  const { hh, mm } = startHHMM || { hh: now.getHours(), mm: now.getMinutes() };
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
+  const stepMs = Math.max(1, parseInt(intervalHours, 10)) * 3600 * 1000;
+
+  if (now.getTime() <= startToday.getTime()) {
+    return Math.ceil((startToday.getTime() - now.getTime()) / 1000);
+  }
+  const passed = now.getTime() - startToday.getTime();
+  const k = Math.ceil(passed / stepMs);
+  const next = startToday.getTime() + k * stepMs;
+  return Math.max(1, Math.ceil((next - now.getTime()) / 1000));
+}
+function nextOccurrenceForItem(item) {
+  const sch = item?.schedule || {};
+  if (!sch.mode || sch.mode === 'hora') {
+    const parsed = parseHHMMFlexible(sch.time || item?.time || defaultTime());
+    if (!parsed) return null;
+    return nextDateForDailyTime(parsed.hh, parsed.mm);
+  }
+  const nHours = Math.max(1, parseInt(sch.everyHours || '8', 10));
+  const startParsed = sch.startTime ? parseHHMMFlexible(sch.startTime) : null;
+  const sec = secondsUntilNextFromStart(startParsed, nHours);
+  return new Date(Date.now() + sec * 1000);
+}
+function formatEta(ms) {
+  if (ms <= 0) return 'ahora';
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `en ${h}h ${m}m`;
+  if (m > 0) return `en ${m}m ${s}s`;
+  return `en ${s}s`;
+}
 
 export default function SaludScreen() {
-  const [loading, setLoading] = useState(false);
-  const [statusLabel, setStatusLabel] = useState('');
-  const [granted, setGranted] = useState(false);
-  const [available, setAvailable] = useState(false);
-  const [data, setData] = useState(null); // { steps, bpm, hrAt, hrOrigin, stepOrigins, stepsAsOf }
-  const [grantedList, setGrantedList] = useState([]); // debug
-  const [lastUpdated, setLastUpdated] = useState(null);
+  const navigation = useNavigation();
+  const [patient, setPatient] = useState({ id: null });
+  const [metrics, setMetrics] = useState({});
+  const [mood, setMood] = useState(null);
+  const [power, setPower] = useState({ score: 0, color: theme.colors.primary });
 
-  // refs para controlar auto refresh
+  // Próximo ítem de Farmacia
+  const [nextInfo, setNextInfo] = useState(null); // { item, nextAt: Date, isPaused: boolean }
+  const [nowTick, setNowTick] = useState(Date.now()); // para refrescar cuenta regresiva
+  const etaTimerRef = useRef(null);
   const intervalRef = useRef(null);
-  const isRefreshingRef = useRef(false);
-  const focusedRef = useRef(false);
-  const appActiveRef = useRef(true);
 
-  const stopInterval = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }, []);
-
-  const refreshStatus = useCallback(async () => {
-    try {
-      const s = await hcGetStatusDebug();
-      setStatusLabel(`${s.label} (${s.status})`);
-      setAvailable(s.label === 'SDK_AVAILABLE' || s.status === 0);
-    } catch {
-      setStatusLabel('STATUS_ERROR');
-      setAvailable(false);
-    }
-  }, []);
-
-  const refreshPermissions = useCallback(async () => {
-    const list = await getGrantedList();
-    setGrantedList(list);
-    const ok = areAllGranted(list);
-    setGranted(ok);
-    return ok;
-  }, []);
-
-  const refreshData = useCallback(async () => {
-    try {
-      const [stepsRes, hrRes] = await Promise.allSettled([
-        readTodaySteps(),
-        readLatestHeartRate(),
-      ]);
-
-      const stepsBlock = stepsRes.status === 'fulfilled' && stepsRes.value ? stepsRes.value : null;
-      const hrBlock = hrRes.status === 'fulfilled' && hrRes.value ? hrRes.value : null;
-
-      const steps = stepsBlock?.steps ?? 0;
-      const stepOrigins = stepsBlock?.origins ?? [];
-      const stepsAsOf = stepsBlock?.asOf ?? null;
-
-      const bpm = hrBlock?.bpm ?? null;
-      const hrAt = hrBlock?.at ?? null;
-      const hrOrigin = hrBlock?.origin ?? null;
-
-      setData({ steps, stepOrigins, stepsAsOf, bpm, hrAt, hrOrigin });
-      setLastUpdated(new Date());
-    } catch {
-      setData(null);
-    }
-  }, []);
-
-  const tick = useCallback(async () => {
-    if (!available || !granted) return;
-    if (!focusedRef.current || !appActiveRef.current) return;
-    if (isRefreshingRef.current) return;
-    isRefreshingRef.current = true;
-    try {
-      await refreshData();
-    } finally {
-      isRefreshingRef.current = false;
-    }
-  }, [available, granted, refreshData]);
-
-  const tryStartInterval = useCallback(() => {
-    if (!intervalRef.current && available && granted && focusedRef.current && appActiveRef.current) {
-      intervalRef.current = setInterval(tick, INTERVAL_MS);
-    }
-  }, [available, granted, tick]);
-
-  const fullRefresh = useCallback(async () => {
-    await refreshStatus();
-    const ok = await refreshPermissions();
-    if (available && ok) {
-      await refreshData();
-      tryStartInterval();
-    } else {
-      stopInterval();
-      setData(null);
-    }
-  }, [available, refreshStatus, refreshPermissions, refreshData, tryStartInterval, stopInterval]);
-
-  // manejar foco de pantalla
-  useFocusEffect(
-    useCallback(() => {
-      focusedRef.current = true;
-      (async () => {
-        setLoading(true);
-        try { await fullRefresh(); } finally { setLoading(false); }
-      })();
-      return () => {
-        focusedRef.current = false;
-        stopInterval();
-      };
-    }, [fullRefresh, stopInterval])
-  );
-
-  // manejar estado de la app (activo/inactivo)
+  // Cargar perfil
   useEffect(() => {
-    const sub = AppState.addEventListener('change', async (st) => {
-      const active = st === 'active';
-      appActiveRef.current = active;
-      if (active) {
-        setLoading(true);
-        try { await fullRefresh(); } finally { setLoading(false); }
-      } else {
-        stopInterval();
-      }
-    });
-    return () => sub.remove();
-  }, [fullRefresh, stopInterval]);
+    AsyncStorage.getItem(PROFILE_KEY)
+      .then(raw => raw && setPatient(JSON.parse(raw)))
+      .catch(() => {});
+  }, []);
 
-  async function handleRequest() {
-    setLoading(true);
+  // Cargar meds y calcular “próximo”
+  const recomputeNext = async () => {
     try {
-      const ok = await quickSetup();
-      for (let i = 0; i < 3; i++) {
-        const okNow = await refreshPermissions();
-        if (okNow) break;
-      }
-      if (ok && (await hasAllPermissions())) {
-        await refreshData();
-        tryStartInterval();
-      }
-    } finally {
-      setLoading(false);
+      const raw = await AsyncStorage.getItem(MEDS_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      if (!arr.length) { setNextInfo(null); return; }
+
+      const ensureSchedule = (x) => x.schedule
+        ? x
+        : { ...x, schedule: { mode: 'hora', time: x.time || defaultTime(), everyHours: null, startTime: null } };
+
+      const all = arr.map(ensureSchedule);
+
+      const active = all.filter(x => !!x.reminderOn);
+      const candidates = active.length ? active : all;
+
+      const withNext = candidates
+        .map(x => ({ x, nextAt: nextOccurrenceForItem(x) }))
+        .filter(y => !!y.nextAt)
+        .sort((a, b) => a.nextAt.getTime() - b.nextAt.getTime());
+
+      if (!withNext.length) { setNextInfo(null); return; }
+
+      const { x: item, nextAt } = withNext[0];
+      setNextInfo({ item, nextAt, isPaused: !item.reminderOn });
+    } catch {
+      setNextInfo(null);
     }
-  }
+  };
 
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', padding: 24 }}>
-      {loading ? (
-        <View style={{ alignItems: 'center' }}>
-          <ActivityIndicator />
-          <Text style={{ marginTop: 12 }}>Sincronizando con Health Connect…</Text>
-        </View>
-      ) : (
-        <>
-          {!available && (
+  useEffect(() => {
+    recomputeNext();
+    const unsub = navigation.addListener('focus', recomputeNext);
+    return unsub;
+  }, [navigation]);
+
+  // Timer de cuenta regresiva (1s)
+  useEffect(() => {
+    etaTimerRef.current && clearInterval(etaTimerRef.current);
+    etaTimerRef.current = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => { etaTimerRef.current && clearInterval(etaTimerRef.current); };
+  }, []);
+
+  // Recalcular cuando pase la hora objetivo
+  useEffect(() => {
+    if (!nextInfo?.nextAt) return;
+    if (Date.now() - nextInfo.nextAt.getTime() >= 0) {
+      recomputeNext();
+    }
+  }, [nowTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Permisos Android básicos
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS).catch(() => {});
+      PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION).catch(() => {});
+    }
+  }, []);
+
+  // Intento de setup HC una vez (si falta permiso abrirá el sheet)
+  useEffect(() => {
+    quickSetup().catch(() => {});
+  }, []);
+
+  // Fetch métricas cada 15s (Health Connect)
+  useEffect(() => {
+    async function fetchMetrics() {
+      try {
+        const [hr, st, sp, sl] = await Promise.all([
+          readLatestHeartRate(),   // { bpm, at, origin }
+          readTodaySteps(),        // { steps, ... }
+          readLatestSpO2(),        // { spo2, ... }
+          readSleepLast24h(),      // { hours, ... }
+        ]);
+
+        const newMetrics = {
+          heart_rate: hr?.bpm ?? null,
+          steps: st?.steps ?? null,
+          sleep: sl?.hours ?? null,
+          spo2: sp?.spo2 ?? null,
+        };
+        setMetrics(newMetrics);
+        const { score, color } = computeVital(newMetrics, mood);
+        setPower({ score, color });
+      } catch {
+        // métricas se mantienen
+      }
+    }
+
+    // primera carga + intervalo
+    fetchMetrics();
+    intervalRef.current && clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(fetchMetrics, 15000);
+    return () => {
+      intervalRef.current && clearInterval(intervalRef.current);
+    };
+  }, [mood]);
+
+  const submitMood = choice => {
+    setMood(choice);
+    Alert.alert('¡Gracias!', `Estado de ánimo: ${choice}`);
+    const { score, color } = computeVital(metrics, choice);
+    setPower({ score, color });
+  };
+
+  const metricsList = [
+    ['Frecuencia cardíaca', metrics.heart_rate != null ? `${metrics.heart_rate} bpm` : '—'],
+    ['Pasos',               metrics.steps != null ? metrics.steps : '—'],
+    ['Sueño',               metrics.sleep != null ? `${metrics.sleep} h` : '—'],
+    ['SpO₂',                metrics.spo2 != null ? `${metrics.spo2} %` : '—']
+  ];
+
+  // --------- UI Próximo medicamento/suplemento ----------
+  const renderNextPharma = () => {
+    const goFarmacia = () => navigation.navigate('Cuidado', { initialTab: 'Farmacia' });
+
+    return (
+      <TouchableOpacity style={styles.nextMedContainer} onPress={goFarmacia} activeOpacity={0.8}>
+        <Ionicons
+          name="medkit-outline"
+          size={24}
+          color={theme.colors.textPrimary}
+        />
+        <View style={styles.nextMedInfo}>
+          <CustomText style={styles.nextMedLabel}>Próximo medicamento/suplemento</CustomText>
+
+          {!nextInfo ? (
+            <CustomText style={styles.emptyText}>Sin registro</CustomText>
+          ) : (
             <>
-              <Text style={{ fontSize: 16, marginBottom: 6 }}>
-                Health Connect no está disponible (estado: {statusLabel}).
-              </Text>
-              <Text style={{ fontSize: 14, opacity: 0.8, marginBottom: 12 }}>
-                Instala/actualiza y habilita Health Connect, luego vuelve aquí.
-              </Text>
+              <CustomText style={styles.nextMedText}>
+                {nextInfo.item.name}{nextInfo.item.dose ? ` — ${nextInfo.item.dose}` : ''}
+              </CustomText>
 
-              <Button
-                title="Abrir Health Connect"
-                onPress={async () => {
-                  setLoading(true);
-                  try { await hcOpenSettings(); } finally { setLoading(false); }
-                }}
-              />
-              <View style={{ height: 12 }} />
-              <Button
-                title="Revisar de nuevo"
-                onPress={async () => {
-                  setLoading(true);
-                  try { await fullRefresh(); } finally { setLoading(false); }
-                }}
-              />
-            </>
-          )}
-
-          {available && !granted && (
-            <>
-              <Text style={{ fontSize: 16, marginBottom: 6 }}>
-                Otorga permisos de lectura de Pasos y Frecuencia Cardíaca.
-              </Text>
-              <Button title="Solicitar permisos ahora" onPress={handleRequest} />
-              <View style={{ marginTop: 16, opacity: 0.7 }}>
-                <Text style={{ fontSize: 12 }}>
-                  Concedidos: {grantedList.length ? grantedList.join(', ') : '—'}
-                </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 }}>
+                <CustomText style={styles.nextMeta}>
+                  {nextInfo.item.schedule?.mode === 'hora'
+                    ? `Diario a las ${nextInfo.item.schedule?.time || defaultTime()}`
+                    : `Cada ${nextInfo.item.schedule?.everyHours} h`}{' '}
+                  • {formatEta(Math.max(0, nextInfo.nextAt.getTime() - nowTick))}
+                </CustomText>
+                {nextInfo.isPaused && (
+                  <View style={styles.pausedChip}>
+                    <CustomText style={styles.pausedChipText}>Pausado</CustomText>
+                  </View>
+                )}
               </View>
             </>
           )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
-          {available && granted && (
-            <View style={{ alignItems: 'center' }}>
-              <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 8 }}>
-                Lecturas recientes
-              </Text>
+  return (
+    <ScrollView contentContainerStyle={styles.container} style={{ backgroundColor: theme.colors.background }}>
+      <LatidoPower score={power.score} color={power.color} />
 
-              <Text style={{ fontSize: 16, marginBottom: 2 }}>
-                Último pulso: {data?.bpm != null ? `${data.bpm} bpm` : '—'}
-              </Text>
-              <Text style={{ fontSize: 12, opacity: 0.7, marginBottom: 12 }}>
-                Hora: {fmtTime(data?.hrAt)}{data?.hrOrigin ? `  ·  Origen: ${data.hrOrigin}` : ''}
-              </Text>
-
-              <Text style={{ fontSize: 16, marginBottom: 2 }}>
-                Pasos (hoy): {data?.steps ?? 0}
-              </Text>
-              <Text style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
-                Orígenes: {data?.stepOrigins?.length ? data.stepOrigins.join(', ') : '—'}
-              </Text>
-
-              <Text style={{ fontSize: 12, opacity: 0.7 }}>
-                Actualizado: {fmtClock(lastUpdated)} · auto cada 15 s
-              </Text>
-            </View>
-          )}
-        </>
+      {!mood && (
+        <View style={styles.moodContainer}>
+          <CustomText style={styles.moodTitle}>¿Cómo te sientes hoy?</CustomText>
+          <View style={styles.moodOptions}>
+            {['😊','😐','😔'].map(e => (
+              <TouchableOpacity key={e} onPress={() => submitMood(e)} style={styles.moodButton}>
+                <RNText style={styles.moodEmoji}>{e}</RNText>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
       )}
-    </View>
+
+      <View style={styles.grid}>
+        {metricsList.map(([label, value]) => (
+          <View style={styles.card} key={label}>
+            <CustomText style={styles.metricLabel}>{label}</CustomText>
+            <CustomText style={styles.metricValue}>{value}</CustomText>
+          </View>
+        ))}
+      </View>
+
+      {renderNextPharma()}
+
+      {/* Cuidador: conserva integración existente */}
+      <CuidadorScreen onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')} />
+    </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: { padding: theme.spacing.sm },
+  moodContainer: { marginBottom: theme.spacing.md, alignItems: 'center' },
+  moodTitle: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs, fontFamily: theme.typography.body.fontFamily },
+  moodOptions: { flexDirection: 'row' },
+  moodButton: { marginHorizontal: theme.spacing.sm },
+  moodEmoji: { fontSize: theme.fontSizes.lg },
+
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: theme.spacing.md },
+  card: {
+    width: '48%',
+    backgroundColor: theme.colors.surface,
+    padding: theme.spacing.sm,
+    borderRadius: theme.shape.borderRadius,
+    marginBottom: theme.spacing.sm,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
+      android: { elevation: 2 }
+    })
+  },
+  metricLabel: { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, marginBottom: theme.spacing.xs, fontFamily: theme.typography.body.fontFamily },
+  metricValue: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, fontWeight: '700', fontFamily: theme.typography.subtitle.fontFamily },
+
+  nextMedContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    padding: theme.spacing.sm,
+    borderRadius: theme.shape.borderRadius,
+    marginBottom: theme.spacing.md,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
+      android: { elevation: 2 }
+    })
+  },
+  nextMedInfo: { marginLeft: theme.spacing.sm, flex: 1 },
+  nextMedLabel: { fontSize: theme.fontSizes.md, color: theme.colors.textSecondary, fontFamily: theme.typography.body.fontFamily },
+  nextMedText: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, fontFamily: theme.typography.body.fontFamily },
+  nextMeta: { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, fontFamily: theme.typography.body.fontFamily },
+
+  pausedChip: {
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.outline
+  },
+  pausedChipText: { color: theme.colors.textSecondary, fontSize: 12, fontFamily: theme.typTypography?.body?.fontFamily || theme.typography.body.fontFamily }
+});
