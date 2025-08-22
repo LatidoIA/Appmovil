@@ -1,6 +1,6 @@
-// SaludScreen.js (RAÍZ)
-// UI original + Health Connect: HR, Steps, Sueño (24h), SpO₂, Presión arterial, Estrés(opcional).
-// Auto-refresh 15s. Mantiene tu flujo (Farmacia y Cuidador).
+// SaludScreen.js
+// — Sin cambios de header. Mantiene tus métricas (HR, Pasos, Sueño, SpO2, PA, Estrés) y refresco 15s.
+// — Pasa el componente CuidadorScreen sin props (mostrará 0s hasta vincular).
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
@@ -42,7 +42,7 @@ function computeVital(metrics = {}, mood) {
   if (metrics.steps      != null) vals.push(Math.min((metrics.steps / 10000) * 100, 100));
   if (metrics.sleep      != null) vals.push(Math.min((metrics.sleep / 8) * 100, 100));
   if (metrics.spo2       != null) vals.push(metrics.spo2);
-  if (metrics.stress     != null) vals.push(Math.max(0, 100 - metrics.stress)); // a menos estrés, mejor
+  if (metrics.stress     != null) vals.push(Math.max(0, 100 - metrics.stress));
   if (mood === '😊') vals.push(100);
   else if (mood === '😐') vals.push(50);
   else if (mood === '😔') vals.push(0);
@@ -210,7 +210,7 @@ export default function SaludScreen() {
           readLatestSpO2(),
           readSleepLast24h(),
           readLatestBloodPressure(),
-          readLatestStress(), // opcional, seguro en catch
+          readLatestStress(),
         ]);
 
         const newMetrics = {
@@ -276,7 +276,7 @@ export default function SaludScreen() {
                   {nextInfo.item.schedule?.mode === 'hora'
                     ? `Diario a las ${nextInfo.item.schedule?.time || defaultTime()}`
                     : `Cada ${nextInfo.item.schedule?.everyHours} h`}{' '}
-                  • {formatEta(Math.max(0, nextInfo.nextAt.getTime() - nowTick))}
+                  • {formatEta(Math.max(0, nextInfo.nextAt.getTime() - Date.now()))}
                 </CustomText>
                 {nextInfo.isPaused && (
                   <View style={styles.pausedChip}>
@@ -323,20 +323,8 @@ export default function SaludScreen() {
 
       {renderNextPharma()}
 
-      <CuidadorScreen
-        onLink={() => {
-          // Si tu ruta original se llama diferente, la cubrimos con varios intentos.
-          const tries = [
-            () => navigation.navigate('CuidadorVincular'),
-            () => navigation.navigate('Vincular'),
-            () => navigation.navigate('Vinculo'),
-            () => navigation.navigate('LinkPaciente'),
-            () => navigation.navigate('VincularPaciente'),
-            () => navigation.navigate('Cuidado', { screen: 'Vincular' }),
-          ];
-          for (const t of tries) { try { t(); return; } catch {} }
-        }}
-      />
+      {/* Cuidador: SIN props -> muestra ceros hasta vincular */}
+      <CuidadorScreen />
     </ScrollView>
   );
 }
