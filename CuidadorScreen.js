@@ -41,10 +41,7 @@ export default function CuidadorScreen({ onCongratulate }) {
   // Cargar perfil y vínculo persistido
   useEffect(() => {
     (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(PROFILE_KEY);
-        if (raw) setProfile(JSON.parse(raw));
-      } catch {}
+      try { const raw = await AsyncStorage.getItem(PROFILE_KEY); if (raw) setProfile(JSON.parse(raw)); } catch {}
       try {
         const linkRaw = await AsyncStorage.getItem(CARE_LINK_KEY);
         if (linkRaw) {
@@ -58,13 +55,9 @@ export default function CuidadorScreen({ onCongratulate }) {
 
   // Guardar vínculo
   const persistLink = async (pId, pName) => {
-    try {
-      await AsyncStorage.setItem(CARE_LINK_KEY, JSON.stringify({ patientId: pId, patientName: pName }));
-    } catch {}
+    try { await AsyncStorage.setItem(CARE_LINK_KEY, JSON.stringify({ patientId: pId, patientName: pName })); } catch {}
   };
-  const clearLink = async () => {
-    try { await AsyncStorage.removeItem(CARE_LINK_KEY); } catch {}
-  };
+  const clearLink = async () => { try { await AsyncStorage.removeItem(CARE_LINK_KEY); } catch {} };
 
   // fetch + polling
   useEffect(() => {
@@ -101,18 +94,12 @@ export default function CuidadorScreen({ onCongratulate }) {
   };
 
   const generateCode = async () => {
-    if (!profile.email || !profile.name) {
-      return Alert.alert('Error', 'Completa tu perfil primero.');
-    }
+    if (!profile.email || !profile.name) return Alert.alert('Error', 'Completa tu perfil primero.');
     setLoading(true);
     try {
       const res = await fetch(`${BACKEND_URL}/caregiver/code`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          patient_email: profile.email,
-          patient_name: profile.name,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patient_email: profile.email, patient_name: profile.name }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Error');
@@ -120,25 +107,16 @@ export default function CuidadorScreen({ onCongratulate }) {
       setMode('generate');
     } catch (e) {
       Alert.alert('Error', e.message);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const joinWithCode = async () => {
-    if (!joinCode.trim()) {
-      return Alert.alert('Error', 'Ingresa un código.');
-    }
+    if (!joinCode.trim()) return Alert.alert('Error', 'Ingresa un código.');
     setLoading(true);
     try {
       const res = await fetch(`${BACKEND_URL}/caregiver/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: joinCode,
-          caregiver_email: profile.email,
-          caregiver_name: profile.name,
-        }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: joinCode, caregiver_email: profile.email, caregiver_name: profile.name }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Código inválido');
@@ -149,9 +127,7 @@ export default function CuidadorScreen({ onCongratulate }) {
       setModalVisible(false);
     } catch (e) {
       Alert.alert('Error', e.message);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const unlink = async () => {
@@ -213,7 +189,7 @@ export default function CuidadorScreen({ onCongratulate }) {
         textStyle={styles.congratsText}
       />
 
-      <Modal visible={modalVisible} transparent animationType="slide">
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
         <View style={styles.overlay}>
           <View style={styles.modal}>
             <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeBtn}>
@@ -230,9 +206,7 @@ export default function CuidadorScreen({ onCongratulate }) {
                     <CustomButton title="Unirse" onPress={() => setMode('join')} variant="outline" style={styles.modalBtn} />
                   </>
                 )}
-                {linked && (
-                  <CustomButton title="Desvincular" onPress={unlink} variant="outline" style={styles.modalBtn} />
-                )}
+                {linked && <CustomButton title="Desvincular" onPress={unlink} variant="outline" style={styles.modalBtn} />}
               </>
             )}
 
@@ -270,14 +244,11 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     borderRadius: theme.shape.borderRadius,
     marginBottom: theme.spacing.sm,
-    ...Platform.select({
-      ios: { shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.1, shadowRadius:1 },
-      android: { elevation:1 },
-    }),
+    ...Platform.select({ ios: { shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.1, shadowRadius:1 }, android: { elevation:1 } }),
   },
   headerRow: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom: theme.spacing.xs },
-  header: { fontSize: theme.fontSizes.md, fontFamily: theme.typography.heading.fontFamily, color: theme.colors.textPrimary },
-  patientName: { fontSize: theme.fontSizes.md, fontFamily: theme.typography.heading.fontFamily, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs },
+  header: { fontSize: theme.fontSizes.md, fontFamily: theme.typTypography?.heading?.fontFamily || theme.typography.heading.fontFamily, color: theme.colors.textPrimary },
+  patientName: { fontSize: theme.fontSizes.md, fontFamily: theme.typTypography?.heading?.fontFamily || theme.typography.heading.fontFamily, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs },
   lastAt: { fontSize: theme.fontSizes.xs || 10, color: theme.colors.textSecondary, marginBottom: theme.spacing.xs, fontFamily: theme.typography.body.fontFamily },
 
   grid: { flexDirection:'row', flexWrap:'wrap', justifyContent:'space-between', marginBottom: theme.spacing.xs },
@@ -288,12 +259,9 @@ const styles = StyleSheet.create({
     padding: theme.spacing.xs,
     marginBottom: theme.spacing.xs,
     alignItems:'center',
-    ...Platform.select({
-      ios: { shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.05, shadowRadius:1 },
-      android: { elevation:1 },
-    }),
+    ...Platform.select({ ios: { shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.05, shadowRadius:1 }, android: { elevation:1 } }),
   },
-  value: { fontSize: theme.fontSizes.sm, fontFamily: theme.typography.subtitle.fontFamily, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs / 2, textAlign:'center' },
+  value: { fontSize: theme.fontSizes.sm, fontFamily: theme.typTypography?.subtitle?.fontFamily || theme.typography.subtitle.fontFamily, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs / 2, textAlign:'center' },
   label: { fontSize: theme.fontSizes.xs || 10, fontFamily: theme.typography.body.fontFamily, color: theme.colors.textSecondary, textAlign:'center' },
   congratsBtn: { alignSelf: 'flex-end', paddingHorizontal: theme.spacing.sm, paddingVertical: theme.spacing.xs },
   congratsText: { fontSize: theme.fontSizes.sm, color: theme.colors.background },
@@ -302,7 +270,7 @@ const styles = StyleSheet.create({
   modal: { width: '70%', backgroundColor: theme.colors.surface, borderRadius: theme.shape.borderRadius, padding: theme.spacing.sm },
   closeBtn: { position: 'absolute', top: theme.spacing.xs, right: theme.spacing.xs },
   closeText: { fontSize: theme.fontSizes.lg, color: theme.colors.textSecondary },
-  modalTitle: { fontSize: theme.fontSizes.md, fontFamily: theme.typography.subtitle.fontFamily, color: theme.colors.textPrimary, textAlign: 'center', marginVertical: theme.spacing.sm },
+  modalTitle: { fontSize: theme.fontSizes.md, fontFamily: theme.typTypography?.subtitle?.fontFamily || theme.typography.subtitle.fontFamily, color: theme.colors.textPrimary, textAlign: 'center', marginVertical: theme.spacing.sm },
   modalInput: { borderWidth: 1, borderColor: theme.colors.outline, borderRadius: theme.shape.borderRadius, padding: theme.spacing.sm, marginBottom: theme.spacing.sm, fontFamily: theme.typography.body.fontFamily, color: theme.colors.textPrimary, textAlign: 'center' },
   modalBtn: { marginBottom: theme.spacing.xs },
 });
