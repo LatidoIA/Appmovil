@@ -1,68 +1,31 @@
 // health.js (RAÍZ)
-// Health Connect: Steps, HeartRate, OxygenSaturation (SpO2), SleepSession, BloodPressure, Stress(opcional)
-// initialize() único, permisos y lectores con fallbacks seguros.
+// Única fuente de verdad para Health Connect.
+// Incluye: quickSetup, estado/debug, permisos, y lecturas: Steps, HeartRate, SpO2, Sleep(24h), BloodPressure, Stress.
+// Defensivo ante diferencias de campos según versión de la lib.
 
 import { Platform, Linking } from 'react-native';
 import {
-  initialize,
   SdkAvailabilityStatus,
   getSdkStatus,
   requestPermission,
-  getGrantedPermissions,
+  hasPermissions,
   readRecords,
-  aggregateRecord,
   openHealthConnectSettings,
   openHealthConnectDataManagement,
+  // algunas versiones exponen getGrantedPermissions; lo manejamos con try/catch
 } from 'react-native-health-connect';
 
-// ---- Tipos HC ----
-const RT_STEPS = 'Steps';
-const RT_HR = 'HeartRate';
-const RT_SPO2 = 'OxygenSaturation';
-const RT_SLEEP = 'SleepSession';
-const RT_BP = 'BloodPressure';
-// OJO: Stress puede no existir en todos los dispositivos/versiones
-const RT_STRESS = 'Stress';
-
-// ---- Permisos (solo lectura) ----
+// ---- Permisos mínimos para tus métricas ----
 const PERMS = [
-  { accessType: 'read', recordType: RT_STEPS },
-  { accessType: 'read', recordType: RT_HR },
-  { accessType: 'read', recordType: RT_SPO2 },
-  { accessType: 'read', recordType: RT_SLEEP },
-  { accessType: 'read', recordType: RT_BP },
-  // No incluimos Stress aquí para evitar fallos si el tipo no existe en el dispositivo.
+  { accessType: 'read', recordType: 'Steps' },
+  { accessType: 'read', recordType: 'HeartRate' },
+  { accessType: 'read', recordType: 'OxygenSaturation' },
+  { accessType: 'read', recordType: 'SleepSession' },
+  { accessType: 'read', recordType: 'BloodPressure' },
+  { accessType: 'read', recordType: 'Stress' }, // si no existe, leerá en try/catch
 ];
 
-// ---- Init único ----
-let _inited = false;
-async function ensureInit() {
-  if (_inited || Platform.OS !== 'android') return;
-  await initialize();
-  _inited = true;
-}
-
-// ---- Utils ----
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-function startOfTodayIso() {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return start.toISOString();
-}
-function uniq(arr) {
-  return Array.from(new Set((arr || []).filter(Boolean)));
-}
-function overlapMs(aStartIso, aEndIso, bStartIso, bEndIso) {
-  const a0 = new Date(aStartIso).getTime();
-  const a1 = new Date(aEndIso).getTime();
-  const b0 = new Date(bStartIso).getTime();
-  const b1 = new Date(bEndIso).getTime();
-  const start = Math.max(a0, b0);
-  const end = Math.min(a1, b1);
-  return Math.max(0, end - start);
-}
-
-// ---- Estado SDK / Settings ----
+// ---- Mapa legible de estados del SDK ----
 const statusLabel = {
   [SdkAvailabilityStatus.SDK_AVAILABLE]: 'SDK_AVAILABLE',
   [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED]: 'PROVIDER_UPDATE_REQUIRED',
@@ -74,7 +37,6 @@ const statusLabel = {
 export async function hcGetStatusDebug() {
   if (Platform.OS !== 'android') return { status: -1, label: 'NOT_ANDROID' };
   try {
-    await ensureInit();
     const s = await getSdkStatus();
     return { status: s, label: statusLabel[s] ?? String(s) };
   } catch {
@@ -84,54 +46,45 @@ export async function hcGetStatusDebug() {
 
 export async function hcOpenSettings() {
   if (Platform.OS !== 'android') return false;
-  await ensureInit();
   try { await openHealthConnectSettings(); return true; } catch {}
-  try {
-    if (typeof openHealthConnectDataManagement === 'function') {
-      await openHealthConnectDataManagement();
-      return true;
-    }
-  } catch {}
+  try { await openHealthConnectDataManagement(); return true; } catch {}
   const pkg = 'com.google.android.apps.healthdata';
   try { await Linking.openURL(`market://details?id=${pkg}`); return true; } catch {}
   try { await Linking.openURL(`https://play.google.com/store/apps/details?id=${pkg}`); return true; } catch {}
   return false;
 }
 
-// ---- Permisos ----
-export async function getGrantedList() {
-  if (Platform.OS !== 'android') return [];
-  await ensureInit();
-  try {
-    const list = await getGrantedPermissions();
-    return (list || []).map(p => `${p.recordType}:${p.accessType}`);
-  } catch {
-    return [];
-  }
-}
-export function areAllGranted(grantedList) {
-  const need = PERMS.map(p => `${p.recordType}:${p.accessType}`);
-  return need.every(x => grantedList.includes(x));
-}
 export async function hasAllPermissions() {
-  const grantedList = await getGrantedList();
-  return areAllGranted(grantedList);
+  if (Platform.OS !== 'android') return false;
+  try { return await hasPermissions(PERMS); } catch { return false; }
 }
+
 export async function requestAllPermissions() {
   if (Platform.OS !== 'android') return false;
-  await ensureInit();
   try { await requestPermission(PERMS); } catch {}
-  for (let i = 0; i < 3; i++) {
-    const ok = await hasAllPermissions();
-    if (ok) return true;
-    await sleep(300);
-  }
-  return false;
+  return hasAllPermissions();
 }
+
+// Lista “humana” de permisos concedidos (si la lib lo soporta)
+export async function getGrantedList() {
+  if (Platform.OS !== 'android') return [];
+  try {
+    // @ts-ignore — algunas versiones exponen getGrantedPermissions
+    const { getGrantedPermissions } = require('react-native-health-connect');
+    if (typeof getGrantedPermissions === 'function') {
+      const granted = await getGrantedPermissions();
+      // normaliza a array de nombres de recordType
+      return (granted || []).map(g => g.recordType || g.name).filter(Boolean);
+    }
+  } catch {}
+  // Fallback: si hasPermissions devuelve true, devolvemos PERMS nominales
+  const ok = await hasAllPermissions();
+  return ok ? PERMS.map(p => p.recordType) : [];
+}
+
 export async function quickSetup() {
   if (Platform.OS !== 'android') return false;
   try {
-    await ensureInit();
     const s = await getSdkStatus();
     if (s !== SdkAvailabilityStatus.SDK_AVAILABLE) {
       try { await openHealthConnectSettings(); } catch {}
@@ -144,248 +97,154 @@ export async function quickSetup() {
   }
 }
 
-// ---- Lecturas ----
-export async function readTodaySteps() {
-  if (Platform.OS !== 'android') return { steps: 0, source: 'na', origins: [], asOf: null };
-  await ensureInit();
-  const start = startOfTodayIso();
-  const end = new Date().toISOString();
+// ------------------ LECTURAS ------------------
 
+// Steps (hoy, sumatoria)
+export async function readTodaySteps() {
+  if (Platform.OS !== 'android') return { steps: 0, origins: [], asOf: null };
   try {
-    const agg = await aggregateRecord({
-      recordType: RT_STEPS,
-      timeRangeFilter: { operator: 'between', startTime: start, endTime: end },
+    const end = new Date();
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    const { records = [] } = await readRecords('Steps', {
+      timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
     });
-    const steps = agg?.count ?? agg?.countTotal ?? agg?.steps ?? null;
-    if (typeof steps === 'number') {
-      const originsFromAgg = (agg?.dataOrigins || agg?.dataOrigin || []).map(o =>
-        o?.packageName ?? o?.package ?? o
-      );
-      return { steps, source: 'aggregate', origins: uniq(originsFromAgg), asOf: end };
-    }
-  } catch {}
-  try {
-    const { records = [] } = await readRecords(RT_STEPS, {
-      timeRangeFilter: { operator: 'between', startTime: start, endTime: end },
-      ascendingOrder: false,
-      pageSize: 200,
-    });
-    let total = 0;
-    const origins = [];
-    let latestTs = null;
-    for (const r of records) {
-      total += (r?.count ?? r?.steps ?? 0);
-      const pkg =
-        r?.metadata?.dataOrigin?.packageName ??
-        r?.metadata?.dataOrigin?.package ??
-        r?.metadata?.dataOrigin ?? null;
-      if (pkg) origins.push(pkg);
-      const t = r?.endTime ?? r?.startTime ?? null;
-      if (t && (!latestTs || new Date(t) > new Date(latestTs))) latestTs = t;
-    }
-    return { steps: total, source: 'raw', origins: uniq(origins), asOf: latestTs };
+    const total = records.reduce((sum, r) => sum + (r?.count ?? r?.steps ?? 0), 0);
+    // orígenes
+    const origins = Array.from(new Set(records.map(r => r?.metadata?.dataOrigin?.packageName).filter(Boolean)));
+    return { steps: total, origins, asOf: end.toISOString() };
   } catch {
-    return { steps: 0, source: 'error', origins: [], asOf: null };
+    return { steps: 0, origins: [], asOf: null };
   }
 }
 
+// HeartRate (última muestra en 48h)
 export async function readLatestHeartRate() {
   if (Platform.OS !== 'android') return { bpm: null, at: null, origin: null };
-  await ensureInit();
   try {
     const end = new Date();
     const start = new Date(end.getTime() - 1000 * 60 * 60 * 48);
-    const { records = [] } = await readRecords(RT_HR, {
+    const { records = [] } = await readRecords('HeartRate', {
       timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
-      ascendingOrder: false,
-      pageSize: 100,
+      ascending: false,
+      pageSize: 1,
     });
-
-    let best = { bpm: null, at: null, origin: null }, bestTs = 0;
-    for (const rec of records) {
-      const origin =
-        rec?.metadata?.dataOrigin?.packageName ??
-        rec?.metadata?.dataOrigin?.package ??
-        rec?.metadata?.dataOrigin ?? null;
-
-      if (Array.isArray(rec?.samples) && rec.samples.length) {
-        for (const s of rec.samples) {
-          const ts = s?.time ? new Date(s.time).getTime() : 0;
-          const val = s?.beatsPerMinute ?? s?.bpm ?? null;
-          if (val != null && ts > bestTs) { bestTs = ts; best = { bpm: val, at: s.time, origin }; }
-        }
-      } else {
-        const ts = rec?.endTime ? new Date(rec.endTime).getTime()
-                : rec?.startTime ? new Date(rec.startTime).getTime() : 0;
-        const val = rec?.beatsPerMinute ?? rec?.bpm ?? null;
-        if (val != null && ts > bestTs) { bestTs = ts; best = { bpm: val, at: rec?.endTime ?? rec?.startTime ?? null, origin }; }
-      }
+    if (!records.length) return { bpm: null, at: null, origin: null };
+    const rec = records[0];
+    // samples array o valor directo
+    let bpm = null;
+    let at = rec?.endTime ?? null;
+    if (Array.isArray(rec.samples) && rec.samples.length) {
+      const last = rec.samples[rec.samples.length - 1];
+      bpm = last?.beatsPerMinute ?? last?.bpm ?? null;
+      at = last?.time ?? rec?.endTime ?? at;
+    } else {
+      bpm = rec?.beatsPerMinute ?? rec?.bpm ?? null;
     }
-    return best;
+    const origin = rec?.metadata?.dataOrigin?.packageName ?? null;
+    return { bpm, at, origin };
   } catch {
     return { bpm: null, at: null, origin: null };
   }
 }
 
+// SpO2 (última muestra 72h)
 export async function readLatestSpO2() {
   if (Platform.OS !== 'android') return { spo2: null, at: null, origin: null };
-  await ensureInit();
   try {
     const end = new Date();
-    const start = new Date(end.getTime() - 1000 * 60 * 60 * 48);
-    const { records = [] } = await readRecords(RT_SPO2, {
+    const start = new Date(end.getTime() - 1000 * 60 * 60 * 72);
+    const { records = [] } = await readRecords('OxygenSaturation', {
       timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
-      ascendingOrder: false,
-      pageSize: 100,
+      ascending: false,
+      pageSize: 1,
     });
-
-    let best = { spo2: null, at: null, origin: null }, bestTs = 0;
-    for (const rec of records) {
-      const origin =
-        rec?.metadata?.dataOrigin?.packageName ??
-        rec?.metadata?.dataOrigin?.package ??
-        rec?.metadata?.dataOrigin ?? null;
-
-      if (Array.isArray(rec?.samples) && rec.samples.length) {
-        for (const s of rec.samples) {
-          const ts = s?.time ? new Date(s.time).getTime() : 0;
-          const val = s?.percentage ?? s?.oxygenSaturation ?? s?.value ?? null;
-          if (val != null && ts > bestTs) { bestTs = ts; best = { spo2: val, at: s.time, origin }; }
-        }
-      } else {
-        const ts = rec?.time ? new Date(rec.time).getTime()
-                : rec?.endTime ? new Date(rec.endTime).getTime()
-                : rec?.startTime ? new Date(rec.startTime).getTime() : 0;
-        const val = rec?.percentage ?? rec?.oxygenSaturation ?? rec?.value ?? null;
-        if (val != null && ts > bestTs) { bestTs = ts; best = { spo2: val, at: rec?.time ?? rec?.endTime ?? rec?.startTime ?? null, origin }; }
-      }
-    }
-    return best;
+    if (!records.length) return { spo2: null, at: null, origin: null };
+    const rec = records[0];
+    // distintos nombres según versión
+    const spo2 = rec?.percentage ?? rec?.oxygenSaturation ?? rec?.value ?? null;
+    const at = rec?.time ?? rec?.endTime ?? null;
+    const origin = rec?.metadata?.dataOrigin?.packageName ?? null;
+    return { spo2: spo2 != null ? Math.round(Number(spo2)) : null, at, origin };
   } catch {
     return { spo2: null, at: null, origin: null };
   }
 }
 
+// Sleep (últimas 24h) — total en horas
 export async function readSleepLast24h() {
-  if (Platform.OS !== 'android') return { hours: null, origins: [], rangeEnd: null };
-  await ensureInit();
+  if (Platform.OS !== 'android') return { hours: null, rangeStart: null, rangeEnd: null, origins: [] };
   try {
-    const end = new Date();
-    const start = new Date(end.getTime() - 1000 * 60 * 60 * 24);
-    const { records = [] } = await readRecords(RT_SLEEP, {
-      timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
-      ascendingOrder: false,
-      pageSize: 200,
+    const rangeEnd = new Date();
+    const rangeStart = new Date(rangeEnd.getTime() - 1000 * 60 * 60 * 24);
+    const { records = [] } = await readRecords('SleepSession', {
+      timeRangeFilter: { operator: 'overlaps', startTime: rangeStart.toISOString(), endTime: rangeEnd.toISOString() },
     });
-
-    let totalMs = 0;
-    const origins = [];
-    for (const r of records) {
-      const ms = overlapMs(r.startTime, r.endTime, start.toISOString(), end.toISOString());
-      totalMs += ms;
-      const pkg =
-        r?.metadata?.dataOrigin?.packageName ??
-        r?.metadata?.dataOrigin?.package ??
-        r?.metadata?.dataOrigin ?? null;
-      if (pkg) origins.push(pkg);
+    let ms = 0;
+    const originsSet = new Set();
+    for (const s of records) {
+      const st = new Date(s.startTime).getTime();
+      const en = new Date(s.endTime).getTime();
+      const clippedStart = Math.max(st, rangeStart.getTime());
+      const clippedEnd = Math.min(en, rangeEnd.getTime());
+      if (clippedEnd > clippedStart) ms += (clippedEnd - clippedStart);
+      const o = s?.metadata?.dataOrigin?.packageName;
+      if (o) originsSet.add(o);
     }
-    const hours = totalMs ? Number((totalMs / 3600000).toFixed(1)) : null;
-    return { hours, origins: uniq(origins), rangeEnd: end.toISOString() };
+    const hours = ms ? +(ms / 36e5).toFixed(1) : null;
+    return { hours, rangeStart: rangeStart.toISOString(), rangeEnd: rangeEnd.toISOString(), origins: Array.from(originsSet) };
   } catch {
-    return { hours: null, origins: [], rangeEnd: null };
+    return { hours: null, rangeStart: null, rangeEnd: null, origins: [] };
   }
 }
 
+// Blood Pressure (última lectura 14 días)
 export async function readLatestBloodPressure() {
   if (Platform.OS !== 'android') return { sys: null, dia: null, at: null, origin: null };
-  await ensureInit();
   try {
     const end = new Date();
-    const start = new Date(end.getTime() - 1000 * 60 * 60 * 24 * 7);
-    const { records = [] } = await readRecords(RT_BP, {
+    const start = new Date(end.getTime() - 1000 * 60 * 60 * 24 * 14);
+    const { records = [] } = await readRecords('BloodPressure', {
       timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
-      ascendingOrder: false,
-      pageSize: 100,
+      ascending: false,
+      pageSize: 1,
     });
-
-    let best = { sys: null, dia: null, at: null, origin: null }, bestTs = 0;
-
-    for (const rec of records) {
-      const origin =
-        rec?.metadata?.dataOrigin?.packageName ??
-        rec?.metadata?.dataOrigin?.package ??
-        rec?.metadata?.dataOrigin ?? null;
-
-      const sys =
-        rec?.systolic?.mmHg ??
-        rec?.systolic?.millimetersOfMercury ??
-        rec?.systolic?.value ?? null;
-
-      const dia =
-        rec?.diastolic?.mmHg ??
-        rec?.diastolic?.millimetersOfMercury ??
-        rec?.diastolic?.value ?? null;
-
-      const ts = rec?.time ? new Date(rec.time).getTime()
-              : rec?.endTime ? new Date(rec.endTime).getTime()
-              : rec?.startTime ? new Date(rec.startTime).getTime() : 0;
-
-      if (sys != null && dia != null && ts > bestTs) {
-        bestTs = ts;
-        best = { sys: Math.round(sys), dia: Math.round(dia), at: rec?.time ?? rec?.endTime ?? rec?.startTime ?? null, origin };
-      }
-    }
-
-    return best;
+    if (!records.length) return { sys: null, dia: null, at: null, origin: null };
+    const r = records[0];
+    // diferentes formas: {systolic:{value}, diastolic:{value}} o {systolic:120, diastolic:80} o {sys, dia}
+    const sys = r?.systolic?.value ?? r?.systolic ?? r?.sys ?? null;
+    const dia = r?.diastolic?.value ?? r?.diastolic ?? r?.dia ?? null;
+    const at = r?.endTime ?? r?.time ?? null;
+    const origin = r?.metadata?.dataOrigin?.packageName ?? null;
+    return { sys: sys != null ? Math.round(Number(sys)) : null, dia: dia != null ? Math.round(Number(dia)) : null, at, origin };
   } catch {
     return { sys: null, dia: null, at: null, origin: null };
   }
 }
 
-// ---- Estrés (opcional) ----
+// Stress (último 72h) — puede NO existir; devolvemos null si la lib no lo soporta
 export async function readLatestStress() {
-  if (Platform.OS !== 'android') return { value: null, label: null, at: null, origin: null };
-  await ensureInit();
+  if (Platform.OS !== 'android') return { value: null, label: null, at: null };
   try {
     const end = new Date();
-    const start = new Date(end.getTime() - 1000 * 60 * 60 * 48);
-    const { records = [] } = await readRecords(RT_STRESS, {
+    const start = new Date(end.getTime() - 1000 * 60 * 60 * 72);
+    const { records = [] } = await readRecords('Stress', {
       timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
-      ascendingOrder: false,
-      pageSize: 100,
+      ascending: false,
+      pageSize: 1,
     });
-
-    let best = { value: null, label: null, at: null, origin: null }, bestTs = 0;
-    for (const rec of records) {
-      const origin =
-        rec?.metadata?.dataOrigin?.packageName ??
-        rec?.metadata?.dataOrigin?.package ??
-        rec?.metadata?.dataOrigin ?? null;
-
-      // Intentamos campos comunes
-      const val =
-        rec?.value ?? rec?.level ?? rec?.score ?? null;
-      const ts =
-        rec?.time ? new Date(rec.time).getTime()
-        : rec?.endTime ? new Date(rec.endTime).getTime()
-        : rec?.startTime ? new Date(rec.startTime).getTime() : 0;
-
-      if (val != null && ts > bestTs) {
-        bestTs = ts;
-        let label = null;
-        const n = Number(val);
-        if (!Number.isNaN(n)) {
-          if (n <= 25) label = 'Relajado';
-          else if (n <= 50) label = 'Normal';
-          else if (n <= 75) label = 'Elevado';
-          else label = 'Alto';
-        }
-        best = { value: n || val, label, at: rec?.time ?? rec?.endTime ?? rec?.startTime ?? null, origin };
-      }
+    if (!records.length) return { value: null, label: null, at: null };
+    const r = records[0];
+    const v = r?.level ?? r?.value ?? null; // 0-100 o escala propia
+    let label = null;
+    const n = Number(v);
+    if (!Number.isNaN(n)) {
+      if (n < 33) label = 'Bajo';
+      else if (n < 66) label = 'Normal';
+      else label = 'Alto';
     }
-    return best;
+    const at = r?.endTime ?? r?.time ?? null;
+    return { value: v != null ? Math.round(n) : null, label, at };
   } catch {
-    // Si el tipo no existe o no hay permiso, devolvemos vacío
-    return { value: null, label: null, at: null, origin: null };
+    return { value: null, label: null, at: null };
   }
 }
