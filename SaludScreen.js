@@ -1,6 +1,7 @@
-// SaludScreen.js (refresh eficiente + pull-to-refresh + panel debug oculto)
+// SaludScreen.js
+// Auto-refresh 15s SOLO en foco, pull-to-refresh y panel debug oculto (long-press en “Actualizado”)
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   ScrollView,
@@ -10,8 +11,7 @@ import {
   PermissionsAndroid,
   Platform,
   RefreshControl,
-  AppState,
-  Text as RNText
+  Text as RNText,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,6 +31,8 @@ import {
   readLatestStress,
   hcGetStatusDebug,
   getGrantedList,
+  hcOpenSettings,
+  hasAllPermissions,
 } from './health';
 
 const PROFILE_KEY = '@latido_profile';
@@ -130,17 +132,15 @@ export default function SaludScreen() {
   const [mood, setMood] = useState(null);
   const [power, setPower] = useState({ score: 0, color: theme.colors.primary });
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugInfo, setDebugInfo] = useState(null);
 
   // Próximo ítem de Farmacia
   const [nextInfo, setNextInfo] = useState(null);
-
-  // Refresh y debug
-  const [refreshing, setRefreshing] = useState(false);
-  const [debug, setDebug] = useState(false);
-  const [debugInfo, setDebugInfo] = useState({ status: null, granted: [], origins: {} });
-
+  const [nowTick, setNowTick] = useState(Date.now());
+  const etaTimerRef = useRef(null);
   const intervalRef = useRef(null);
-  const appState = useRef(AppState.currentState);
 
   // Cargar perfil
   useEffect(() => {
@@ -150,7 +150,7 @@ export default function SaludScreen() {
   }, []);
 
   // Cargar meds y calcular “próximo”
-  const recomputeNext = async () => {
+  const recomputeNext = useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(MEDS_KEY);
       const arr = raw ? JSON.parse(raw) : [];
@@ -172,14 +172,29 @@ export default function SaludScreen() {
       if (!withNext.length) { setNextInfo(null); return; }
       const { x: item, nextAt } = withNext[0];
       setNextInfo({ item, nextAt, isPaused: !item.reminderOn });
-    } catch { setNextInfo(null); }
-  };
+    } catch {
+      setNextInfo(null);
+    }
+  }, []);
 
   useEffect(() => {
     recomputeNext();
     const unsub = navigation.addListener('focus', recomputeNext);
     return unsub;
-  }, [navigation]);
+  }, [navigation, recomputeNext]);
+
+  // Timer de cuenta regresiva (1s)
+  useEffect(() => {
+    etaTimerRef.current && clearInterval(etaTimerRef.current);
+    etaTimerRef.current = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => { etaTimerRef.current && clearInterval(etaTimerRef.current); };
+  }, []);
+
+  // Recalcular cuando pase la hora objetivo
+  useEffect(() => {
+    if (!nextInfo?.nextAt) return;
+    if (Date.now() - nextInfo.nextAt.getTime() >= 0) recomputeNext();
+  }, [nowTick, nextInfo, recomputeNext]);
 
   // Permisos Android básicos
   useEffect(() => {
@@ -187,11 +202,12 @@ export default function SaludScreen() {
       PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS).catch(() => {});
       PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION).catch(() => {});
     }
-    quickSetup().catch(() => {});
   }, []);
 
-  // ---- Fetch de métricas ----
-  const fetchMetrics = async () => {
+  // Setup HC (una vez)
+  useEffect(() => { quickSetup().catch(() => {}); }, []);
+
+  const fetchMetrics = useCallback(async () => {
     try {
       const [hr, st, sp, sl, bp, stress] = await Promise.all([
         readLatestHeartRate(),
@@ -219,64 +235,49 @@ export default function SaludScreen() {
       const { score, color } = computeVital(newMetrics, mood);
       setPower({ score, color });
 
-      // debug: orígenes por tipo
-      setDebugInfo(prev => ({
-        ...prev,
-        origins: {
-          steps: st?.origins || [],
-          hr: hr?.origin ? [hr.origin] : [],
-          spo2: sp?.origin ? [sp.origin] : [],
-          sleep: sl?.origins || [],
-          bp: bp?.origin ? [bp.origin] : [],
-        }
-      }));
-    } catch {}
-  };
-
-  const refreshDebug = async () => {
-    try {
-      const [status, granted] = await Promise.all([hcGetStatusDebug(), getGrantedList()]);
-      setDebugInfo(prev => ({ ...prev, status, granted }));
-    } catch {}
-  };
-
-  // Intervalo eficiente: solo con pantalla enfocada y app activa
-  useFocusEffect(
-    React.useCallback(() => {
-      let active = true;
-
-      const start = () => {
-        if (intervalRef.current) return;
-        fetchMetrics(); refreshDebug();
-        intervalRef.current = setInterval(() => { fetchMetrics(); }, REFRESH_MS);
-      };
-      const stop = () => {
-        if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
-      };
-
-      // AppState listener
-      const sub = AppState.addEventListener('change', (next) => {
-        appState.current = next;
-        if (!active) return;
-        if (next === 'active') start(); else stop();
+      // Para panel debug
+      setDebugInfo({
+        sdk: await hcGetStatusDebug(),
+        granted: await getGrantedList(),
+        sources: {
+          steps: st?.origins ?? [],
+          hr: hr?.origin ?? null,
+          spo2: sp?.origin ?? null,
+          sleep: sl?.origins ?? [],
+          bp: bp?.origin ?? null,
+        },
+        times: {
+          steps: st?.asOf ?? null,
+          hr: hr?.at ?? null,
+          spo2: sp?.at ?? null,
+          sleepEnd: sl?.rangeEnd ?? null,
+          bp: bp?.at ?? null,
+        },
+        hasAll: await hasAllPermissions(),
       });
+    } catch {}
+  }, [mood]);
 
-      // arranque
-      if (appState.current === 'active') start();
+  // Auto-refresh SOLO en foco
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => { if (!cancelled) await fetchMetrics(); })();
+
+      intervalRef.current && clearInterval(intervalRef.current);
+      intervalRef.current = setInterval(() => { fetchMetrics().catch(() => {}); }, REFRESH_MS);
 
       return () => {
-        active = false;
-        sub.remove();
-        stop();
+        cancelled = true;
+        if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
       };
-    }, [mood])
+    }, [fetchMetrics])
   );
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchMetrics(), refreshDebug()]);
-    setRefreshing(false);
-  };
+    try { await fetchMetrics(); } finally { setRefreshing(false); }
+  }, [fetchMetrics]);
 
   const submitMood = choice => {
     setMood(choice);
@@ -296,14 +297,14 @@ export default function SaludScreen() {
 
   // --------- UI Próximo medicamento/suplemento ----------
   const renderNextPharma = () => {
-    const goFarmacia = () => {
-      try { navigation.navigate('Cuidado', { initialTab: 'Farmacia' }); } catch {}
-    };
+    const goFarmacia = () => navigation.navigate('Cuidado', { initialTab: 'Farmacia' });
+
     return (
       <TouchableOpacity style={styles.nextMedContainer} onPress={goFarmacia} activeOpacity={0.8}>
         <Ionicons name="medkit-outline" size={24} color={theme.colors.textPrimary} />
         <View style={styles.nextMedInfo}>
           <CustomText style={styles.nextMedLabel}>Próximo medicamento/suplemento</CustomText>
+
           {!nextInfo ? (
             <CustomText style={styles.emptyText}>Sin registro</CustomText>
           ) : (
@@ -311,12 +312,13 @@ export default function SaludScreen() {
               <CustomText style={styles.nextMedText}>
                 {nextInfo.item.name}{nextInfo.item.dose ? ` — ${nextInfo.item.dose}` : ''}
               </CustomText>
+
               <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 }}>
                 <CustomText style={styles.nextMeta}>
                   {nextInfo.item.schedule?.mode === 'hora'
                     ? `Diario a las ${nextInfo.item.schedule?.time || defaultTime()}`
                     : `Cada ${nextInfo.item.schedule?.everyHours} h`}{' '}
-                  • {/* ETA aproximada */}
+                  • {formatEta(Math.max(0, nextInfo.nextAt.getTime() - Date.now()))}
                 </CustomText>
                 {nextInfo.isPaused && (
                   <View style={styles.pausedChip}>
@@ -331,23 +333,36 @@ export default function SaludScreen() {
     );
   };
 
-  // Panel debug oculto (long press en "Actualizado")
+  // --------- Panel debug oculto (long-press en “Actualizado”) ----------
   const DebugPanel = () => {
-    if (!debug) return null;
+    if (!showDebug || !debugInfo) return null;
+    const row = (k, v) => (
+      <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 }}>
+        <CustomText style={{ color: theme.colors.textSecondary }}>{k}</CustomText>
+        <CustomText style={{ color: theme.colors.textPrimary, marginLeft: 8 }}>{v}</CustomText>
+      </View>
+    );
+    const srcs = debugInfo.sources || {};
+    const tms = debugInfo.times || {};
     return (
       <View style={styles.debugBox}>
-        <CustomText style={styles.debugLine}>
-          SDK: {debugInfo.status?.label || '—'}
-        </CustomText>
-        <CustomText style={styles.debugLine}>
-          Permisos: {Array.isArray(debugInfo.granted) ? debugInfo.granted.join(', ') : '—'}
-        </CustomText>
-        <CustomText style={styles.debugLine}>
-          Orígenes → HR:{(debugInfo.origins?.hr||[]).join(' | ') || '—'} · Steps:{(debugInfo.origins?.steps||[]).join(' | ') || '—'}
-        </CustomText>
-        <CustomText style={styles.debugLine}>
-          SpO₂:{(debugInfo.origins?.spo2||[]).join(' | ') || '—'} · Sueño:{(debugInfo.origins?.sleep||[]).join(' | ') || '—'} · PA:{(debugInfo.origins?.bp||[]).join(' | ') || '—'}
-        </CustomText>
+        <CustomText style={styles.debugTitle}>Debug Health Connect</CustomText>
+        {row('SDK', `${debugInfo.sdk?.label} (${debugInfo.sdk?.status})`)}
+        {row('Perms ok', String(!!debugInfo.hasAll))}
+        {row('Granted', (debugInfo.granted || []).join(', ') || '—')}
+        {row('Origen HR', srcs.hr || '—')}
+        {row('Origen SpO2', srcs.spo2 || '—')}
+        {row('Origen Steps', (srcs.steps || []).join(', ') || '—')}
+        {row('Origen Sleep', (srcs.sleep || []).join(', ') || '—')}
+        {row('Origen BP', srcs.bp || '—')}
+        {row('t HR', tms.hr || '—')}
+        {row('t SpO2', tms.spo2 || '—')}
+        {row('t Steps', tms.steps || '—')}
+        {row('t SleepEnd', tms.sleepEnd || '—')}
+        {row('t BP', tms.bp || '—')}
+        <TouchableOpacity onPress={() => hcOpenSettings().catch(() => {})} style={styles.debugBtn}>
+          <CustomText style={{ color: theme.colors.background, textAlign: 'center' }}>Abrir Health Connect</CustomText>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -382,7 +397,7 @@ export default function SaludScreen() {
         ))}
       </View>
 
-      <TouchableOpacity onLongPress={() => setDebug(v => !v)} activeOpacity={0.7}>
+      <TouchableOpacity onLongPress={() => setShowDebug(s => !s)} activeOpacity={0.7}>
         <CustomText style={styles.updatedAt}>
           Actualizado: {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}
         </CustomText>
@@ -392,8 +407,8 @@ export default function SaludScreen() {
 
       {renderNextPharma()}
 
-      {/* Cuidador: modal “+” y 0s hasta vincular */}
-      <CuidadorScreen onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')} />
+      {/* Cuidador: se muestra con su propio modal + vínculo. */}
+      <CuidadorScreen />
     </ScrollView>
   );
 }
@@ -459,5 +474,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.outline,
   },
-  debugLine: { color: theme.colors.textSecondary, fontSize: theme.fontSizes.sm, marginBottom: 4, fontFamily: theme.typography.body.fontFamily },
+  debugTitle: {
+    fontSize: theme.fontSizes.md,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.xs,
+    fontFamily: theme.typography.subtitle.fontFamily,
+  },
+  debugBtn: {
+    marginTop: theme.spacing.sm,
+    backgroundColor: theme.colors.accent,
+    paddingVertical: 8,
+    borderRadius: theme.shape.borderRadius,
+  },
 });
