@@ -1,5 +1,7 @@
-// CuidadoPersonalScreen.js
-import React, { useState, useEffect, useMemo } from 'react';
+// CuidadoPersonalScreen.js (FIX: usar ./health y API actual)
+// Lee HR/Pasos desde health.js, con permisos vía quickSetup y fallbacks seguros.
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   TouchableOpacity,
@@ -9,19 +11,20 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import CustomText from './CustomText';
 import theme from './theme';
 import ArticulosScreen from './ArticulosScreen';
 import FarmaciaScreen from './FarmaciaScreen';
 
-// >>> Health Connect helper <<<
+// ---- Health Connect (unificado en ./health)
 import {
-  hcEnsureAvailable,
-  hcInitAndRequest,
-  hcReadLatestHeartRate,
-  hcReadStepsToday
-} from './src/health';
+  hcGetStatusDebug,
+  quickSetup,
+  readLatestHeartRate,
+  readTodaySteps,
+  hcOpenSettings,
+} from './health';
 
 const MEDS_KEY   = '@latido_meds';
 const EXAMS_KEY  = '@latido_exam_history';
@@ -43,30 +46,49 @@ export default function CuidadoPersonalScreen() {
   const [streakCount, setStreakCount] = useState(0);
 
   // ----- Health Connect (FC y Pasos) -----
-  const [hcStatus, setHcStatus] = useState('init'); // init | no-hc | no-perms | ok
-  const [lastHr, setLastHr] = useState(null);
-  const [steps, setSteps] = useState(null);
+  // init | no-hc | no-perms | ok
+  const [hcStatus, setHcStatus] = useState('init');
+  const [lastHr, setLastHr] = useState(null);     // { bpm, at, origin }
+  const [steps, setSteps]   = useState(null);     // { steps, origins, asOf }
 
+  // Setup HC una sola vez
   useEffect(() => {
     (async () => {
       try {
-        const available = await hcEnsureAvailable();
-        if (!available) { setHcStatus('no-hc'); return; }
-
-        const granted = await hcInitAndRequest();
-        if (!granted?.length) { setHcStatus('no-perms'); return; }
-
-        const hr = await hcReadLatestHeartRate();
-        const st = await hcReadStepsToday();
-        setLastHr(hr);
-        setSteps(st);
+        const st = await hcGetStatusDebug();
+        if (st?.label !== 'SDK_AVAILABLE') { setHcStatus('no-hc'); return; }
+        const ok = await quickSetup();                  // pide permisos si faltan
+        if (!ok) { setHcStatus('no-perms'); return; }
         setHcStatus('ok');
-      } catch (e) {
-        // Si algo falla, mostramos estado genérico
+      } catch {
         setHcStatus('no-hc');
       }
     })();
   }, []);
+
+  // Cargar métricas (cuando está en foco)
+  const loadHCMetrics = useCallback(async () => {
+    try {
+      const [hr, st] = await Promise.all([
+        readLatestHeartRate(),
+        readTodaySteps(),
+      ]);
+      setLastHr(hr || null);
+      setSteps(st || null);
+    } catch {
+      setLastHr(null);
+      setSteps(null);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      (async () => { if (mounted && hcStatus === 'ok') await loadHCMetrics(); })();
+      const id = setInterval(() => { if (hcStatus === 'ok') loadHCMetrics().catch(() => {}); }, 15000);
+      return () => { mounted = false; clearInterval(id); };
+    }, [hcStatus, loadHCMetrics])
+  );
 
   // ---- cargar datos base ----
   useEffect(() => {
@@ -83,11 +105,12 @@ export default function CuidadoPersonalScreen() {
         const meds = medsRaw ? JSON.parse(medsRaw) : [];
         setNextMed(meds[0] || null);
 
-        setExamCount(Array.isArray(JSON.parse(exRaw || '[]')) ? JSON.parse(exRaw || '[]').length : 0);
-        setGlucoseCount(Array.isArray(JSON.parse(glRaw || '[]')) ? JSON.parse(glRaw || '[]').length : 0);
+        const exArr = exRaw ? JSON.parse(exRaw) : [];
+        const glArr = glRaw ? JSON.parse(glRaw) : [];
+        setExamCount(Array.isArray(exArr) ? exArr.length : 0);
+        setGlucoseCount(Array.isArray(glArr) ? glArr.length : 0);
         setStreakCount(parseInt(stRaw || '0', 10) || 0);
-      } catch (e) {
-        // valores por defecto si algo falla
+      } catch {
         setNextMed(null);
         setExamCount(0);
         setGlucoseCount(0);
@@ -177,16 +200,25 @@ export default function CuidadoPersonalScreen() {
               <CustomText style={styles.hcTitle}>Reloj (Health Connect)</CustomText>
 
               {hcStatus === 'init' && <CustomText>Cargando…</CustomText>}
+
               {hcStatus === 'no-hc' && (
-                <CustomText>Instala/activa Health Connect y vuelve a abrir la app.</CustomText>
+                <TouchableOpacity onPress={() => hcOpenSettings().catch(() => {})} activeOpacity={0.8}>
+                  <CustomText>Instala/activa Health Connect y vuelve a abrir la app. (Abrir)</CustomText>
+                </TouchableOpacity>
               )}
+
               {hcStatus === 'no-perms' && (
                 <CustomText>Permisos denegados. Concede acceso en Health Connect.</CustomText>
               )}
+
               {hcStatus === 'ok' && (
                 <>
-                  <CustomText>FC último: {lastHr?.samples?.[0]?.beatsPerMinute ?? '—'} bpm</CustomText>
-                  <CustomText>Pasos hoy: {steps?.total ?? 0}</CustomText>
+                  <CustomText>
+                    FC último: {lastHr?.bpm != null ? `${lastHr.bpm} bpm` : '—'}
+                  </CustomText>
+                  <CustomText>
+                    Pasos hoy: {steps?.steps != null ? steps.steps : 0}
+                  </CustomText>
                 </>
               )}
             </View>
