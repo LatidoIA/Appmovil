@@ -1,4 +1,5 @@
-// CuidadorScreen.js (Snack original + persistencia, desvincular y polling 15s)
+// CuidadorScreen.js
+// Versión Snack + persistencia de vínculo y opción “Desvincular” + polling 15s.
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -22,9 +23,7 @@ import theme from './theme';
 
 const BACKEND_URL = 'https://orca-app-njfej.ondigitalocean.app';
 const PROFILE_KEY = '@latido_profile';
-// Persistencia del vínculo
-const CARE_LINK_ID = '@latido_care_patient_id';
-const CARE_LINK_NAME = '@latido_care_patient_name';
+const CARE_LINK_KEY = '@latido_caregiver_link';
 
 export default function CuidadorScreen({ onCongratulate }) {
   const [modalVisible, setModalVisible] = useState(false);
@@ -33,15 +32,13 @@ export default function CuidadorScreen({ onCongratulate }) {
   const [joinCode, setJoinCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState({ name: '', email: '' });
-
   const [patientName, setPatientName] = useState('');
   const [patientId, setPatientId] = useState(null);
-
   const [metrics, setMetrics] = useState({});
   const [lastAt, setLastAt] = useState(null);
   const pollRef = useRef(null);
 
-  // Cargar perfil + vínculo persistido
+  // Cargar perfil y vínculo persistido
   useEffect(() => {
     (async () => {
       try {
@@ -49,17 +46,27 @@ export default function CuidadorScreen({ onCongratulate }) {
         if (raw) setProfile(JSON.parse(raw));
       } catch {}
       try {
-        const [pid, pname] = await Promise.all([
-          AsyncStorage.getItem(CARE_LINK_ID),
-          AsyncStorage.getItem(CARE_LINK_NAME),
-        ]);
-        if (pid) setPatientId(pid);
-        if (pname) setPatientName(pname);
+        const linkRaw = await AsyncStorage.getItem(CARE_LINK_KEY);
+        if (linkRaw) {
+          const link = JSON.parse(linkRaw);
+          setPatientId(link.patientId || null);
+          setPatientName(link.patientName || '');
+        }
       } catch {}
     })();
   }, []);
 
-  // Fetch + polling cuando hay vínculo
+  // Guardar vínculo
+  const persistLink = async (pId, pName) => {
+    try {
+      await AsyncStorage.setItem(CARE_LINK_KEY, JSON.stringify({ patientId: pId, patientName: pName }));
+    } catch {}
+  };
+  const clearLink = async () => {
+    try { await AsyncStorage.removeItem(CARE_LINK_KEY); } catch {}
+  };
+
+  // fetch + polling
   useEffect(() => {
     if (!patientId) {
       setMetrics({});
@@ -76,9 +83,7 @@ export default function CuidadorScreen({ onCongratulate }) {
         (Array.isArray(data) ? data : []).forEach(m => { map[m.metric] = m; });
         setMetrics(map);
         setLastAt(new Date());
-      } catch {
-        // mantenemos últimos valores si falla
-      }
+      } catch {}
     };
 
     fetchOnce();
@@ -138,11 +143,8 @@ export default function CuidadorScreen({ onCongratulate }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Código inválido');
       setPatientName(data.patient_name);
-      setPatientId(String(data.patient_id));
-      await AsyncStorage.multiSet([
-        [CARE_LINK_ID, String(data.patient_id)],
-        [CARE_LINK_NAME, data.patient_name || ''],
-      ]);
+      setPatientId(data.patient_id);
+      await persistLink(data.patient_id, data.patient_name);
       Alert.alert('¡Éxito!', `Cuidas a ${data.patient_name}`);
       setModalVisible(false);
     } catch (e) {
@@ -153,27 +155,18 @@ export default function CuidadorScreen({ onCongratulate }) {
   };
 
   const unlink = async () => {
-    try {
-      await AsyncStorage.multiRemove([CARE_LINK_ID, CARE_LINK_NAME]);
-      setPatientId(null);
-      setPatientName('');
-      setMetrics({});
-      setLastAt(null);
-      Alert.alert('Listo', 'Vínculo eliminado.');
-    } catch {}
+    setPatientId(null);
+    setPatientName('');
+    setMetrics({});
+    setLastAt(null);
+    await clearLink();
+    Alert.alert('Listo', 'Se desvinculó el paciente.');
   };
 
-  const copyCode = () => {
-    Clipboard.setStringAsync(invitationCode);
-    Alert.alert('Copiado', 'Código copiado al portapapeles');
-  };
+  const copyCode = () => { Clipboard.setStringAsync(invitationCode); Alert.alert('Copiado', 'Código copiado al portapapeles'); };
+  const shareLink = () => { const link = `${BACKEND_URL}/join?code=${invitationCode}`; Share.share({ message: `Únete como cuidador: ${link}` }); };
 
-  const shareLink = () => {
-    const link = `${BACKEND_URL}/join?code=${invitationCode}`;
-    Share.share({ message: `Únete como cuidador: ${link}` });
-  };
-
-  // Formateo seguro: 0s cuando no hay vínculo, “—” si hay vínculo y falta dato
+  // formateo seguro
   const linked = !!patientId;
   const hrText   = linked ? (metrics.heart_rate?.value != null ? `${metrics.heart_rate.value} bpm` : '—') : '0 bpm';
   const bpText   = linked ? (metrics.blood_pressure?.value ? `${metrics.blood_pressure.value} mmHg` : '—') : '0 mmHg';
@@ -200,9 +193,8 @@ export default function CuidadorScreen({ onCongratulate }) {
         </TouchableOpacity>
       </View>
 
-      <CustomText style={styles.patientName}>
-        {patientName || 'Paciente'}
-      </CustomText>
+      <CustomText style={styles.patientName}>{patientName || 'Paciente'}</CustomText>
+      {lastAt && <CustomText style={styles.lastAt}>Última actualización: {lastAt.toLocaleTimeString()}</CustomText>}
 
       <View style={styles.grid}>
         {metricsList.map(([label, val]) => (
@@ -212,12 +204,6 @@ export default function CuidadorScreen({ onCongratulate }) {
           </View>
         ))}
       </View>
-
-      {linked && (
-        <CustomText style={styles.updatedAt}>
-          Última actualización: {lastAt ? lastAt.toLocaleTimeString() : '—'}
-        </CustomText>
-      )}
 
       <CustomButton
         title="🎉  Felicitar"
@@ -238,8 +224,12 @@ export default function CuidadorScreen({ onCongratulate }) {
 
             {!loading && mode === null && (
               <>
-                <CustomButton title="Código" onPress={generateCode} variant="primary" style={styles.modalBtn} />
-                <CustomButton title="Unirse" onPress={() => setMode('join')} variant="outline" style={styles.modalBtn} />
+                {!linked && (
+                  <>
+                    <CustomButton title="Código" onPress={generateCode} variant="primary" style={styles.modalBtn} />
+                    <CustomButton title="Unirse" onPress={() => setMode('join')} variant="outline" style={styles.modalBtn} />
+                  </>
+                )}
                 {linked && (
                   <CustomButton title="Desvincular" onPress={unlink} variant="outline" style={styles.modalBtn} />
                 )}
@@ -285,29 +275,12 @@ const styles = StyleSheet.create({
       android: { elevation:1 },
     }),
   },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent:'space-between',
-    alignItems:'center',
-    marginBottom: theme.spacing.xs,
-  },
-  header: {
-    fontSize: theme.fontSizes.md,
-    fontFamily: theme.typography.heading.fontFamily,
-    color: theme.colors.textPrimary,
-  },
-  patientName: {
-    fontSize: theme.fontSizes.md,
-    fontFamily: theme.typography.heading.fontFamily,
-    color: theme.colors.textPrimary,
-    marginBottom: theme.spacing.xs,
-  },
-  grid: {
-    flexDirection:'row',
-    flexWrap:'wrap',
-    justifyContent:'space-between',
-    marginBottom: theme.spacing.xs,
-  },
+  headerRow: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom: theme.spacing.xs },
+  header: { fontSize: theme.fontSizes.md, fontFamily: theme.typography.heading.fontFamily, color: theme.colors.textPrimary },
+  patientName: { fontSize: theme.fontSizes.md, fontFamily: theme.typography.heading.fontFamily, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs },
+  lastAt: { fontSize: theme.fontSizes.xs || 10, color: theme.colors.textSecondary, marginBottom: theme.spacing.xs, fontFamily: theme.typography.body.fontFamily },
+
+  grid: { flexDirection:'row', flexWrap:'wrap', justifyContent:'space-between', marginBottom: theme.spacing.xs },
   card: {
     width:'30%',
     backgroundColor: theme.colors.background,
@@ -320,71 +293,16 @@ const styles = StyleSheet.create({
       android: { elevation:1 },
     }),
   },
-  value: {
-    fontSize: theme.fontSizes.sm,
-    fontFamily: theme.typography.subtitle.fontFamily,
-    color: theme.colors.textPrimary,
-    marginBottom: theme.spacing.xs / 2,
-  },
-  label: {
-    fontSize: theme.fontSizes.xs || 10,
-    fontFamily: theme.typography.body.fontFamily,
-    color: theme.colors.textSecondary,
-  },
-  updatedAt: {
-    alignSelf: 'flex-end',
-    fontSize: theme.fontSizes.xs || 10,
-    color: theme.colors.textSecondary,
-    marginBottom: theme.spacing.xs,
-  },
-  congratsBtn: {
-    alignSelf: 'flex-end',
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.xs,
-  },
-  congratsText: {
-    fontSize: theme.fontSizes.sm,
-    color: theme.colors.background,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modal: {
-    width: '70%',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.shape.borderRadius,
-    padding: theme.spacing.sm,
-  },
-  closeBtn: {
-    position: 'absolute',
-    top: theme.spacing.xs,
-    right: theme.spacing.xs,
-  },
-  closeText: {
-    fontSize: theme.fontSizes.lg,
-    color: theme.colors.textSecondary,
-  },
-  modalTitle: {
-    fontSize: theme.fontSizes.md,
-    fontFamily: theme.typography.subtitle.fontFamily,
-    color: theme.colors.textPrimary,
-    textAlign: 'center',
-    marginVertical: theme.spacing.sm,
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: theme.colors.outline,
-    borderRadius: theme.shape.borderRadius,
-    padding: theme.spacing.sm,
-    marginBottom: theme.spacing.sm,
-    fontFamily: theme.typTypography?.body?.fontFamily || theme.typography.body.fontFamily,
-    color: theme.colors.textPrimary,
-    textAlign: 'center',
-  },
-  modalBtn: {
-    marginBottom: theme.spacing.xs,
-  },
+  value: { fontSize: theme.fontSizes.sm, fontFamily: theme.typography.subtitle.fontFamily, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs / 2, textAlign:'center' },
+  label: { fontSize: theme.fontSizes.xs || 10, fontFamily: theme.typography.body.fontFamily, color: theme.colors.textSecondary, textAlign:'center' },
+  congratsBtn: { alignSelf: 'flex-end', paddingHorizontal: theme.spacing.sm, paddingVertical: theme.spacing.xs },
+  congratsText: { fontSize: theme.fontSizes.sm, color: theme.colors.background },
+
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
+  modal: { width: '70%', backgroundColor: theme.colors.surface, borderRadius: theme.shape.borderRadius, padding: theme.spacing.sm },
+  closeBtn: { position: 'absolute', top: theme.spacing.xs, right: theme.spacing.xs },
+  closeText: { fontSize: theme.fontSizes.lg, color: theme.colors.textSecondary },
+  modalTitle: { fontSize: theme.fontSizes.md, fontFamily: theme.typography.subtitle.fontFamily, color: theme.colors.textPrimary, textAlign: 'center', marginVertical: theme.spacing.sm },
+  modalInput: { borderWidth: 1, borderColor: theme.colors.outline, borderRadius: theme.shape.borderRadius, padding: theme.spacing.sm, marginBottom: theme.spacing.sm, fontFamily: theme.typography.body.fontFamily, color: theme.colors.textPrimary, textAlign: 'center' },
+  modalBtn: { marginBottom: theme.spacing.xs },
 });
