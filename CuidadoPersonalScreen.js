@@ -1,5 +1,4 @@
-// CuidadoPersonalScreen.js (FIX: usar ./health y API actual)
-// Lee HR/Pasos desde health.js, con permisos vía quickSetup y fallbacks seguros.
+// CuidadoPersonalScreen.js (FIX import a ./health + refresco en foco)
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
@@ -46,33 +45,26 @@ export default function CuidadoPersonalScreen() {
   const [streakCount, setStreakCount] = useState(0);
 
   // ----- Health Connect (FC y Pasos) -----
-  // init | no-hc | no-perms | ok
-  const [hcStatus, setHcStatus] = useState('init');
-  const [lastHr, setLastHr] = useState(null);     // { bpm, at, origin }
-  const [steps, setSteps]   = useState(null);     // { steps, origins, asOf }
+  const [hcStatus, setHcStatus] = useState('init'); // init | no-hc | no-perms | ok
+  const [lastHr, setLastHr] = useState(null);       // { bpm, at, origin }
+  const [steps, setSteps]   = useState(null);       // { steps, origins, asOf }
 
-  // Setup HC una sola vez
+  // Setup HC una vez
   useEffect(() => {
     (async () => {
       try {
         const st = await hcGetStatusDebug();
         if (st?.label !== 'SDK_AVAILABLE') { setHcStatus('no-hc'); return; }
-        const ok = await quickSetup();                  // pide permisos si faltan
+        const ok = await quickSetup(); // pide permisos si faltan
         if (!ok) { setHcStatus('no-perms'); return; }
         setHcStatus('ok');
-      } catch {
-        setHcStatus('no-hc');
-      }
+      } catch { setHcStatus('no-hc'); }
     })();
   }, []);
 
-  // Cargar métricas (cuando está en foco)
   const loadHCMetrics = useCallback(async () => {
     try {
-      const [hr, st] = await Promise.all([
-        readLatestHeartRate(),
-        readTodaySteps(),
-      ]);
+      const [hr, st] = await Promise.all([readLatestHeartRate(), readTodaySteps()]);
       setLastHr(hr || null);
       setSteps(st || null);
     } catch {
@@ -81,6 +73,7 @@ export default function CuidadoPersonalScreen() {
     }
   }, []);
 
+  // refresca cada 15s solo en foco
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
@@ -100,8 +93,6 @@ export default function CuidadoPersonalScreen() {
           AsyncStorage.getItem(GLUC_KEY),
           AsyncStorage.getItem(STREAK_CNT)
         ]);
-
-        // próximo (simple: primero de la lista si hay)
         const meds = medsRaw ? JSON.parse(medsRaw) : [];
         setNextMed(meds[0] || null);
 
@@ -111,10 +102,7 @@ export default function CuidadoPersonalScreen() {
         setGlucoseCount(Array.isArray(glArr) ? glArr.length : 0);
         setStreakCount(parseInt(stRaw || '0', 10) || 0);
       } catch {
-        setNextMed(null);
-        setExamCount(0);
-        setGlucoseCount(0);
-        setStreakCount(0);
+        setNextMed(null); setExamCount(0); setGlucoseCount(0); setStreakCount(0);
       }
     })();
   }, [activeTab]);
@@ -122,66 +110,25 @@ export default function CuidadoPersonalScreen() {
   // ---- insignias dinámicas con progreso ----
   const badges = useMemo(() => {
     const b = [];
-
-    // 1) Primer examen de latido
-    const exGoal = 1;
-    const exPct = Math.max(0, Math.min(100, Math.round((examCount / exGoal) * 100)));
-    b.push({
-      key: 'latido_first',
-      label: 'Primer examen de latido',
-      icon: 'heart',
-      progress: exPct,
-      earned: examCount >= exGoal
-    });
-
-    // 2) Primer ingreso de glucosa
-    const glGoal = 1;
-    const glPct = Math.max(0, Math.min(100, Math.round((glucoseCount / glGoal) * 100)));
-    b.push({
-      key: 'glucosa_first',
-      label: 'Primer ingreso de glucosa',
-      icon: 'water',
-      progress: glPct,
-      earned: glucoseCount >= glGoal
-    });
-
-    // 3) Racha 3 días
-    const sGoal = 3;
-    const sPct = Math.max(0, Math.min(100, Math.round((streakCount / sGoal) * 100)));
-    b.push({
-      key: 'streak3',
-      label: 'Racha de 3 días',
-      icon: 'flame',
-      progress: sPct,
-      earned: streakCount >= sGoal
-    });
-
+    const exGoal = 1; const exPct = Math.max(0, Math.min(100, Math.round((examCount / exGoal) * 100)));
+    b.push({ key: 'latido_first', label: 'Primer examen de latido', icon: 'heart', progress: exPct, earned: examCount >= exGoal });
+    const glGoal = 1; const glPct = Math.max(0, Math.min(100, Math.round((glucoseCount / glGoal) * 100)));
+    b.push({ key: 'glucosa_first', label: 'Primer ingreso de glucosa', icon: 'water', progress: glPct, earned: glucoseCount >= glGoal });
+    const sGoal = 3; const sPct = Math.max(0, Math.min(100, Math.round((streakCount / sGoal) * 100)));
+    b.push({ key: 'streak3', label: 'Racha de 3 días', icon: 'flame', progress: sPct, earned: streakCount >= sGoal });
     return b;
   }, [examCount, glucoseCount, streakCount]);
 
-  // ---- UI helpers ----
   const renderBadges = () => (
     <View style={styles.badgesContainer}>
       {badges.map(item => (
         <View key={item.key} style={styles.badgeCard}>
           <View style={styles.badgeHeader}>
-            <Ionicons
-              name={`${item.icon}-outline`}
-              size={20}
-              color={item.earned ? '#FFD700' : theme.colors.textSecondary}
-            />
+            <Ionicons name={`${item.icon}-outline`} size={20} color={item.earned ? '#FFD700' : theme.colors.textSecondary} />
             <CustomText style={styles.badgeLabel}>{item.label}</CustomText>
-            {item.earned ? (
-              <View style={styles.earnedPill}>
-                <CustomText style={styles.earnedPillText}>Completado</CustomText>
-              </View>
-            ) : null}
+            {item.earned ? (<View style={styles.earnedPill}><CustomText style={styles.earnedPillText}>Completado</CustomText></View>) : null}
           </View>
-
-          {/* barra de progreso */}
-          <View style={styles.progressWrap}>
-            <View style={[styles.progressBar, { width: `${item.progress}%` }]} />
-          </View>
+          <View style={styles.progressWrap}><View style={[styles.progressBar, { width: `${item.progress}%` }]} /></View>
           <CustomText style={styles.progressText}>{item.progress}%</CustomText>
         </View>
       ))}
@@ -195,7 +142,6 @@ export default function CuidadoPersonalScreen() {
       case 'Para ti':
         return (
           <View style={styles.content}>
-            {/* ---- Card Health Connect ---- */}
             <View style={styles.hcCard}>
               <CustomText style={styles.hcTitle}>Reloj (Health Connect)</CustomText>
 
@@ -213,17 +159,12 @@ export default function CuidadoPersonalScreen() {
 
               {hcStatus === 'ok' && (
                 <>
-                  <CustomText>
-                    FC último: {lastHr?.bpm != null ? `${lastHr.bpm} bpm` : '—'}
-                  </CustomText>
-                  <CustomText>
-                    Pasos hoy: {steps?.steps != null ? steps.steps : 0}
-                  </CustomText>
+                  <CustomText>FC último: {lastHr?.bpm != null ? `${lastHr.bpm} bpm` : '—'}</CustomText>
+                  <CustomText>Pasos hoy: {steps?.steps != null ? steps.steps : 0}</CustomText>
                 </>
               )}
             </View>
 
-            {/* Farmacia preview */}
             <TouchableOpacity style={styles.previewRow} onPress={goFarmacia} activeOpacity={0.8}>
               <CustomText style={styles.previewTitle}>Farmacia</CustomText>
               {nextMed ? (
@@ -235,13 +176,11 @@ export default function CuidadoPersonalScreen() {
               )}
             </TouchableOpacity>
 
-            {/* Insignias preview */}
             <View style={styles.previewSection}>
               <CustomText style={styles.previewTitle}>Insignias</CustomText>
               {renderBadges()}
             </View>
 
-            {/* Artículo y consejo simples */}
             <View style={styles.previewSection}>
               <CustomText style={styles.previewTitle}>Artículo destacado</CustomText>
               <CustomText style={styles.previewText}>Cómo el estrés impacta tu frecuencia cardíaca</CustomText>
@@ -295,11 +234,7 @@ export default function CuidadoPersonalScreen() {
 
       {/* tabs */}
       <View style={styles.tabBar}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabList}
-        >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabList}>
           {tabs.map(tab => (
             <TouchableOpacity
               key={tab}
@@ -326,133 +261,55 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     backgroundColor: theme.colors.surface,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
-      android: { elevation: 3 }
-    })
+    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 }, android: { elevation: 3 } })
   },
-  headerTitle: {
-    fontSize: theme.fontSizes.lg,
-    fontFamily: theme.typography.heading.fontFamily,
-    color: theme.colors.textPrimary
-  },
+  headerTitle: { fontSize: theme.fontSizes.lg, fontFamily: theme.typography.heading.fontFamily, color: theme.colors.textPrimary },
 
   tabBar: {
     backgroundColor: theme.colors.surface,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
-      android: { elevation: 2 }
-    })
+    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 }, android: { elevation: 2 } })
   },
   tabList: { paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs },
   tabItem: {
-    marginRight: theme.spacing.sm,
-    paddingVertical: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.sm,
-    borderRadius: theme.shape.borderRadius,
-    backgroundColor: theme.colors.surface
+    marginRight: theme.spacing.sm, paddingVertical: theme.spacing.xs, paddingHorizontal: theme.spacing.sm,
+    borderRadius: theme.shape.borderRadius, backgroundColor: theme.colors.surface
   },
   tabItemActive: { backgroundColor: theme.colors.primary },
-  tabText: {
-    fontSize: theme.fontSizes.sm,
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.body.fontFamily
-  },
+  tabText: { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, fontFamily: theme.typography.body.fontFamily },
   tabTextActive: { color: theme.colors.background, fontFamily: theme.typography.body.fontFamily },
 
   body: { flex: 1, backgroundColor: theme.colors.background },
   bodyContent: { padding: theme.spacing.md },
 
   content: { marginBottom: theme.spacing.lg },
-  contentTitle: {
-    fontSize: theme.fontSizes.lg,
-    fontFamily: theme.typography.heading.fontFamily,
-    color: theme.colors.textPrimary,
-    marginBottom: theme.spacing.sm
-  },
+  contentTitle: { fontSize: theme.fontSizes.lg, fontFamily: theme.typography.heading.fontFamily, color: theme.colors.textPrimary, marginBottom: theme.spacing.sm },
 
-  // ---- Health Connect card ----
   hcCard: {
-    marginBottom: theme.spacing.md,
-    padding: theme.spacing.sm,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.shape.borderRadius,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2 },
-      android: { elevation: 1 }
-    })
+    marginBottom: theme.spacing.md, padding: theme.spacing.sm, backgroundColor: theme.colors.surface, borderRadius: theme.shape.borderRadius,
+    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2 }, android: { elevation: 1 } })
   },
-  hcTitle: {
-    fontSize: theme.fontSizes.md,
-    fontFamily: theme.typography.subtitle.fontFamily,
-    color: theme.colors.textPrimary,
-    marginBottom: theme.spacing.xs
-  },
+  hcTitle: { fontSize: theme.fontSizes.md, fontFamily: theme.typography.subtitle.fontFamily, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs },
 
-  // ---- Farmacia / Insignias / Artículos ----
   previewSection: { marginBottom: theme.spacing.md },
   previewRow: {
-    marginBottom: theme.spacing.md,
-    padding: theme.spacing.sm,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.shape.borderRadius,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2 },
-      android: { elevation: 1 }
-    })
+    marginBottom: theme.spacing.md, padding: theme.spacing.sm, backgroundColor: theme.colors.surface, borderRadius: theme.shape.borderRadius,
+    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2 }, android: { elevation: 1 } })
   },
-  previewTitle: {
-    fontSize: theme.fontSizes.md,
-    fontFamily: theme.typography.subtitle.fontFamily,
-    color: theme.colors.textPrimary,
-    marginBottom: theme.spacing.xs
-  },
+  previewTitle: { fontSize: theme.fontSizes.md, fontFamily: theme.typography.subtitle.fontFamily, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs },
   previewText: { fontSize: theme.fontSizes.sm, fontFamily: theme.typography.body.fontFamily, color: theme.colors.textSecondary },
   previewLink: { fontSize: theme.fontSizes.md, color: theme.colors.primary, fontFamily: theme.typTypography?.body?.fontFamily || theme.typography.body.fontFamily },
 
-  // Insignias
   badgesContainer: { marginTop: theme.spacing.xs },
   badgeCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.shape.borderRadius,
-    padding: theme.spacing.sm,
-    marginBottom: theme.spacing.xs,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2 },
-      android: { elevation: 1 }
-    })
+    backgroundColor: theme.colors.surface, borderRadius: theme.shape.borderRadius, padding: theme.spacing.sm, marginBottom: theme.spacing.xs,
+    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 2 }, android: { elevation: 1 } })
   },
   badgeHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  badgeLabel: {
-    fontSize: theme.fontSizes.sm,
-    fontFamily: theme.typography.body.fontFamily,
-    color: theme.colors.textPrimary,
-    marginLeft: theme.spacing.xs,
-    flex: 1
-  },
-  earnedPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.outline
-  },
+  badgeLabel: { fontSize: theme.fontSizes.sm, fontFamily: theme.typography.body.fontFamily, color: theme.colors.textPrimary, marginLeft: theme.spacing.xs, flex: 1 },
+  earnedPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.outline },
   earnedPillText: { color: theme.colors.textSecondary, fontSize: 12, fontFamily: theme.typography.body.fontFamily },
 
-  progressWrap: {
-    height: 8,
-    backgroundColor: theme.colors.background,
-    borderRadius: 999,
-    overflow: 'hidden'
-  },
-  progressBar: {
-    height: 8,
-    backgroundColor: theme.colors.accent
-  },
-  progressText: {
-    marginTop: 4,
-    color: theme.colors.textSecondary,
-    fontFamily: theme.typography.body.fontFamily
-  }
+  progressWrap: { height: 8, backgroundColor: theme.colors.background, borderRadius: 999, overflow: 'hidden' },
+  progressBar: { height: 8, backgroundColor: theme.colors.accent },
+  progressText: { marginTop: 4, color: theme.colors.textSecondary, fontFamily: theme.typTypography?.body?.fontFamily || theme.typography.body.fontFamily },
 });
