@@ -1,6 +1,6 @@
 // SaludScreen.js
-// Auto-refresh 15s SOLO en foco, pull-to-refresh, panel debug oculto (long-press en “Actualizado”),
-// y arranque/parada del uploader opcional.
+// Ahora muestra tarjeta de permisos: redirige a Health Connect y revalida estado.
+// Mantiene auto-refresh 15s, panel debug, uploader y resto de UI.
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -13,6 +13,7 @@ import {
   Platform,
   RefreshControl,
   Text as RNText,
+  ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -138,6 +139,12 @@ export default function SaludScreen() {
   const [showDebug, setShowDebug] = useState(false);
   const [debugInfo, setDebugInfo] = useState(null);
 
+  // Gating permisos/SDK
+  const [available, setAvailable] = useState(false);
+  const [granted, setGranted] = useState(false);
+  const [permLoading, setPermLoading] = useState(false);
+  const [statusText, setStatusText] = useState('…');
+
   // Próximo ítem de Farmacia
   const [nextInfo, setNextInfo] = useState(null);
 
@@ -184,10 +191,66 @@ export default function SaludScreen() {
     }
   }, []);
 
-  // Setup HC (una vez)
-  useEffect(() => { quickSetup().catch(() => {}); }, []);
+  // Chequeo de estado/permisos
+  const checkPerms = useCallback(async () => {
+    try {
+      const st = await hcGetStatusDebug();
+      setStatusText(`${st.label} (${st.status})`);
+      const okAvail = st?.label === 'SDK_AVAILABLE';
+      setAvailable(okAvail);
+      const okPerms = okAvail ? await hasAllPermissions() : false;
+      setGranted(!!okPerms);
+      return { okAvail, okPerms };
+    } catch {
+      setAvailable(false);
+      setGranted(false);
+      setStatusText('STATUS_ERROR');
+      return { okAvail: false, okPerms: false };
+    }
+  }, []);
 
+  // Setup HC (una vez al montar)
+  useEffect(() => {
+    (async () => {
+      await checkPerms();
+    })();
+  }, [checkPerms]);
+
+  // Acción: solicitar permisos / abrir HC
+  const handleRequestPerms = useCallback(async () => {
+    setPermLoading(true);
+    try {
+      const ok = await quickSetup(); // si no hay HC abre ajustes; si hay, lanza dialog de permisos
+      // revalida
+      const { okPerms } = await checkPerms();
+      if (!ok || !okPerms) {
+        // Si el usuario canceló o siguen faltando permisos, abrimos Health Connect manualmente
+        await hcOpenSettings();
+      }
+    } catch {
+      // último intento: abrir ajustes
+      try { await hcOpenSettings(); } catch {}
+    } finally {
+      setPermLoading(false);
+    }
+  }, [checkPerms]);
+
+  const handleOpenHC = useCallback(async () => {
+    setPermLoading(true);
+    try { await hcOpenSettings(); } catch {}
+    finally { setPermLoading(false); }
+  }, []);
+
+  const handleRecheck = useCallback(async () => {
+    setPermLoading(true);
+    try { await checkPerms(); } finally { setPermLoading(false); }
+  }, [checkPerms]);
+
+  // --------- Métricas ----------
   const fetchMetrics = useCallback(async () => {
+    // si no hay permisos, no intentes leer (ahorra batería/errores)
+    if (!available || !granted) return;
+
     try {
       const [hr, st, sp, sl, bp, stress] = await Promise.all([
         readLatestHeartRate(),
@@ -215,7 +278,7 @@ export default function SaludScreen() {
       const { score, color } = computeVital(newMetrics, mood);
       setPower({ score, color });
 
-      // Para panel debug
+      // Panel debug
       setDebugInfo({
         sdk: await hcGetStatusDebug(),
         granted: await getGrantedList(),
@@ -236,15 +299,19 @@ export default function SaludScreen() {
         hasAll: await hasAllPermissions(),
       });
     } catch {}
-  }, [mood]);
+  }, [mood, available, granted]);
 
   // Auto-refresh SOLO en foco + uploader
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      (async () => { if (!cancelled) await fetchMetrics(); })();
 
-      const id = setInterval(() => { fetchMetrics().catch(() => {}); }, REFRESH_MS);
+      (async () => {
+        await checkPerms();
+        if (!cancelled) await fetchMetrics();
+      })();
+
+      const id = setInterval(() => { checkPerms().then(fetchMetrics).catch(() => {}); }, REFRESH_MS);
       uploader.start(60000); // sube cada 60s si hay cambios
 
       return () => {
@@ -252,13 +319,18 @@ export default function SaludScreen() {
         clearInterval(id);
         uploader.stop();
       };
-    }, [fetchMetrics])
+    }, [checkPerms, fetchMetrics])
   );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try { await fetchMetrics(); } finally { setRefreshing(false); }
-  }, [fetchMetrics]);
+    try {
+      await checkPerms();
+      await fetchMetrics();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [checkPerms, fetchMetrics]);
 
   const submitMood = choice => {
     setMood(choice);
@@ -276,10 +348,61 @@ export default function SaludScreen() {
     ['Estrés',              metrics.stress_label ?? (metrics.stress != null ? `${metrics.stress}` : '—')],
   ];
 
+  // --------- UI: tarjeta de permisos/SDK ----------
+  const PermsCard = () => {
+    if (available && granted) return null;
+
+    return (
+      <View style={styles.permsCard}>
+        <CustomText style={styles.permsTitle}>Health Connect</CustomText>
+        {!available && (
+          <>
+            <CustomText style={styles.permsText}>
+              Health Connect no está disponible (estado: {statusText}).
+            </CustomText>
+            <CustomText style={styles.permsHint}>
+              Instala/activa Health Connect y vuelve a la app.
+            </CustomText>
+          </>
+        )}
+        {available && !granted && (
+          <CustomText style={styles.permsText}>
+            Otorga permisos de lectura de Pasos, FC, SpO₂, Sueño y PA.
+          </CustomText>
+        )}
+
+        <View style={{ height: 8 }} />
+        {permLoading ? (
+          <View style={{ alignItems: 'center' }}>
+            <ActivityIndicator />
+            <CustomText style={{ marginTop: 8 }}>Abriendo Health Connect…</CustomText>
+          </View>
+        ) : (
+          <>
+            <TouchableOpacity style={styles.permsBtnPrimary} onPress={handleRequestPerms} activeOpacity={0.85}>
+              <CustomText style={styles.permsBtnPrimaryText}>Solicitar permisos ahora</CustomText>
+            </TouchableOpacity>
+
+            <View style={{ height: 8 }} />
+
+            <TouchableOpacity style={styles.permsBtnOutline} onPress={handleOpenHC} activeOpacity={0.85}>
+              <CustomText style={styles.permsBtnOutlineText}>Abrir Health Connect</CustomText>
+            </TouchableOpacity>
+
+            <View style={{ height: 8 }} />
+
+            <TouchableOpacity style={styles.permsBtnOutline} onPress={handleRecheck} activeOpacity={0.85}>
+              <CustomText style={styles.permsBtnOutlineText}>Revisar de nuevo</CustomText>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
+    );
+  };
+
   // --------- UI Próximo medicamento/suplemento ----------
   const renderNextPharma = () => {
     const goFarmacia = () => navigation.navigate('Cuidado', { initialTab: 'Farmacia' });
-
     return (
       <TouchableOpacity style={styles.nextMedContainer} onPress={goFarmacia} activeOpacity={0.8}>
         <Ionicons name="medkit-outline" size={24} color={theme.colors.textPrimary} />
@@ -293,13 +416,11 @@ export default function SaludScreen() {
               <CustomText style={styles.nextMedText}>
                 {nextInfo.item.name}{nextInfo.item.dose ? ` — ${nextInfo.item.dose}` : ''}
               </CustomText>
-
               <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 }}>
                 <CustomText style={styles.nextMeta}>
                   {nextInfo.item.schedule?.mode === 'hora'
                     ? `Diario a las ${nextInfo.item.schedule?.time || defaultTime()}`
-                    : `Cada ${nextInfo.item.schedule?.everyHours} h`}{' '}
-                  {/* Nota: ETA en Salud era informativa; aquí omito cuenta regresiva por simplicidad */}
+                    : `Cada ${nextInfo.item.schedule?.everyHours} h`}
                 </CustomText>
                 {nextInfo.isPaused && (
                   <View style={styles.pausedChip}>
@@ -356,46 +477,82 @@ export default function SaludScreen() {
     >
       <LatidoPower score={power.score} color={power.color} />
 
-      {!mood && (
-        <View style={styles.moodContainer}>
-          <CustomText style={styles.moodTitle}>¿Cómo te sientes hoy?</CustomText>
-          <View style={styles.moodOptions}>
-            {['😊','😐','😔'].map(e => (
-              <TouchableOpacity key={e} onPress={() => submitMood(e)} style={styles.moodButton}>
-                <RNText style={styles.moodEmoji}>{e}</RNText>
-              </TouchableOpacity>
+      {/* Tarjeta de permisos / HC */}
+      <PermsCard />
+
+      {/* Si no hay permisos, no mostramos el resto de contenido para evitar confusión */}
+      {available && granted && (
+        <>
+          {!mood && (
+            <View style={styles.moodContainer}>
+              <CustomText style={styles.moodTitle}>¿Cómo te sientes hoy?</CustomText>
+              <View style={styles.moodOptions}>
+                {['😊','😐','😔'].map(e => (
+                  <TouchableOpacity key={e} onPress={() => submitMood(e)} style={styles.moodButton}>
+                    <RNText style={styles.moodEmoji}>{e}</RNText>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
+          <View style={styles.grid}>
+            {metricsList.map(([label, value]) => (
+              <View style={styles.card} key={label}>
+                <CustomText style={styles.metricLabel}>{label}</CustomText>
+                <CustomText style={styles.metricValue}>{value}</CustomText>
+              </View>
             ))}
           </View>
-        </View>
+
+          <TouchableOpacity onLongPress={() => setShowDebug(s => !s)} activeOpacity={0.7}>
+            <CustomText style={styles.updatedAt}>
+              Actualizado: {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}
+            </CustomText>
+          </TouchableOpacity>
+
+          <DebugPanel />
+
+          {renderNextPharma()}
+
+          {/* Cuidador (no interfiere con permisos) */}
+          <CuidadorScreen />
+        </>
       )}
-
-      <View style={styles.grid}>
-        {metricsList.map(([label, value]) => (
-          <View style={styles.card} key={label}>
-            <CustomText style={styles.metricLabel}>{label}</CustomText>
-            <CustomText style={styles.metricValue}>{value}</CustomText>
-          </View>
-        ))}
-      </View>
-
-      <TouchableOpacity onLongPress={() => setShowDebug(s => !s)} activeOpacity={0.7}>
-        <CustomText style={styles.updatedAt}>
-          Actualizado: {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}
-        </CustomText>
-      </TouchableOpacity>
-
-      <DebugPanel />
-
-      {renderNextPharma()}
-
-      {/* Cuidador: se muestra con su propio modal + vínculo. */}
-      <CuidadorScreen />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { padding: theme.spacing.sm },
+
+  // ---- Perms card
+  permsCard: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.shape.borderRadius,
+    padding: theme.spacing.sm,
+    marginBottom: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.outline,
+    ...Platform.select({ ios: { shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.06, shadowRadius:2 }, android: { elevation:1 } }),
+  },
+  permsTitle: { fontSize: theme.fontSizes.md, fontFamily: theme.typography.subtitle.fontFamily, color: theme.colors.textPrimary, marginBottom: 6 },
+  permsText:  { fontSize: theme.fontSizes.sm, color: theme.colors.textPrimary, marginBottom: 4, fontFamily: theme.typography.body.fontFamily },
+  permsHint:  { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, marginBottom: 8, fontFamily: theme.typography.body.fontFamily },
+  permsBtnPrimary: {
+    backgroundColor: theme.colors.accent,
+    paddingVertical: 10,
+    borderRadius: theme.shape.borderRadius,
+  },
+  permsBtnPrimaryText: { color: theme.colors.background, textAlign: 'center', fontFamily: theme.typography.subtitle.fontFamily },
+  permsBtnOutline: {
+    borderWidth: 1,
+    borderColor: theme.colors.outline,
+    paddingVertical: 10,
+    borderRadius: theme.shape.borderRadius,
+  },
+  permsBtnOutlineText: { color: theme.colors.textPrimary, textAlign: 'center', fontFamily: theme.typography.body.fontFamily },
+
   moodContainer: { marginBottom: theme.spacing.md, alignItems: 'center' },
   moodTitle: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs, fontFamily: theme.typography.body.fontFamily },
   moodOptions: { flexDirection: 'row' },
@@ -409,10 +566,7 @@ const styles = StyleSheet.create({
     padding: theme.spacing.sm,
     borderRadius: theme.shape.borderRadius,
     marginBottom: theme.spacing.sm,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
-      android: { elevation: 2 }
-    })
+    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 }, android: { elevation: 2 } })
   },
   metricLabel: { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, marginBottom: theme.spacing.xs, fontFamily: theme.typography.body.fontFamily },
   metricValue: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, fontWeight: '700', fontFamily: theme.typography.subtitle.fontFamily },
@@ -426,10 +580,7 @@ const styles = StyleSheet.create({
     padding: theme.spacing.sm,
     borderRadius: theme.shape.borderRadius,
     marginBottom: theme.spacing.md,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
-      android: { elevation: 2 }
-    })
+    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 }, android: { elevation: 2 } })
   },
   nextMedInfo: { marginLeft: theme.spacing.sm, flex: 1 },
   nextMedLabel: { fontSize: theme.fontSizes.md, color: theme.colors.textSecondary, fontFamily: theme.typography.body.fontFamily },
