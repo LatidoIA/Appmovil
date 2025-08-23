@@ -1,5 +1,6 @@
 // SaludScreen.js
-// Auto-refresh 15s SOLO en foco, pull-to-refresh y panel debug oculto (long-press en “Actualizado”)
+// Auto-refresh 15s SOLO en foco, pull-to-refresh, panel debug oculto (long-press en “Actualizado”),
+// y arranque/parada del uploader opcional.
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -34,6 +35,8 @@ import {
   hcOpenSettings,
   hasAllPermissions,
 } from './health';
+
+import * as uploader from './uploader';
 
 const PROFILE_KEY = '@latido_profile';
 const MEDS_KEY = '@latido_meds';
@@ -93,7 +96,6 @@ function secondsUntilNextFromStart(startHHMM, intervalHours) {
   const { hh, mm } = startHHMM || { hh: now.getHours(), mm: now.getMinutes() };
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
   const stepMs = Math.max(1, parseInt(intervalHours, 10)) * 3600 * 1000;
-
   if (now.getTime() <= startToday.getTime()) {
     return Math.ceil((startToday.getTime() - now.getTime()) / 1000);
   }
@@ -138,9 +140,6 @@ export default function SaludScreen() {
 
   // Próximo ítem de Farmacia
   const [nextInfo, setNextInfo] = useState(null);
-  const [nowTick, setNowTick] = useState(Date.now());
-  const etaTimerRef = useRef(null);
-  const intervalRef = useRef(null);
 
   // Cargar perfil
   useEffect(() => {
@@ -155,20 +154,14 @@ export default function SaludScreen() {
       const raw = await AsyncStorage.getItem(MEDS_KEY);
       const arr = raw ? JSON.parse(raw) : [];
       if (!arr.length) { setNextInfo(null); return; }
-
-      const ensureSchedule = (x) => x.schedule
-        ? x
-        : { ...x, schedule: { mode: 'hora', time: x.time || defaultTime(), everyHours: null, startTime: null } };
-
+      const ensureSchedule = (x) => x.schedule ? x : { ...x, schedule: { mode: 'hora', time: x.time || defaultTime(), everyHours: null, startTime: null } };
       const all = arr.map(ensureSchedule);
       const active = all.filter(x => !!x.reminderOn);
       const candidates = active.length ? active : all;
-
       const withNext = candidates
         .map(x => ({ x, nextAt: nextOccurrenceForItem(x) }))
         .filter(y => !!y.nextAt)
         .sort((a, b) => a.nextAt.getTime() - b.nextAt.getTime());
-
       if (!withNext.length) { setNextInfo(null); return; }
       const { x: item, nextAt } = withNext[0];
       setNextInfo({ item, nextAt, isPaused: !item.reminderOn });
@@ -182,19 +175,6 @@ export default function SaludScreen() {
     const unsub = navigation.addListener('focus', recomputeNext);
     return unsub;
   }, [navigation, recomputeNext]);
-
-  // Timer de cuenta regresiva (1s)
-  useEffect(() => {
-    etaTimerRef.current && clearInterval(etaTimerRef.current);
-    etaTimerRef.current = setInterval(() => setNowTick(Date.now()), 1000);
-    return () => { etaTimerRef.current && clearInterval(etaTimerRef.current); };
-  }, []);
-
-  // Recalcular cuando pase la hora objetivo
-  useEffect(() => {
-    if (!nextInfo?.nextAt) return;
-    if (Date.now() - nextInfo.nextAt.getTime() >= 0) recomputeNext();
-  }, [nowTick, nextInfo, recomputeNext]);
 
   // Permisos Android básicos
   useEffect(() => {
@@ -258,18 +238,19 @@ export default function SaludScreen() {
     } catch {}
   }, [mood]);
 
-  // Auto-refresh SOLO en foco
+  // Auto-refresh SOLO en foco + uploader
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => { if (!cancelled) await fetchMetrics(); })();
 
-      intervalRef.current && clearInterval(intervalRef.current);
-      intervalRef.current = setInterval(() => { fetchMetrics().catch(() => {}); }, REFRESH_MS);
+      const id = setInterval(() => { fetchMetrics().catch(() => {}); }, REFRESH_MS);
+      uploader.start(60000); // sube cada 60s si hay cambios
 
       return () => {
         cancelled = true;
-        if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+        clearInterval(id);
+        uploader.stop();
       };
     }, [fetchMetrics])
   );
@@ -318,7 +299,7 @@ export default function SaludScreen() {
                   {nextInfo.item.schedule?.mode === 'hora'
                     ? `Diario a las ${nextInfo.item.schedule?.time || defaultTime()}`
                     : `Cada ${nextInfo.item.schedule?.everyHours} h`}{' '}
-                  • {formatEta(Math.max(0, nextInfo.nextAt.getTime() - Date.now()))}
+                  {/* Nota: ETA en Salud era informativa; aquí omito cuenta regresiva por simplicidad */}
                 </CustomText>
                 {nextInfo.isPaused && (
                   <View style={styles.pausedChip}>
