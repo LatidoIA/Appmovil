@@ -1,7 +1,7 @@
-// CuidadorScreen.js
-// Versión Snack + persistencia de vínculo y opción “Desvincular” + polling 15s.
+// CuidadorScreen.js (ORIGINAL con botón “+” y modal de vinculación)
+// Sin tocar: muestra métricas del PACIENTE vinculado (vía backend), no del propio dispositivo.
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -23,7 +23,6 @@ import theme from './theme';
 
 const BACKEND_URL = 'https://orca-app-njfej.ondigitalocean.app';
 const PROFILE_KEY = '@latido_profile';
-const CARE_LINK_KEY = '@latido_caregiver_link';
 
 export default function CuidadorScreen({ onCongratulate }) {
   const [modalVisible, setModalVisible] = useState(false);
@@ -35,55 +34,26 @@ export default function CuidadorScreen({ onCongratulate }) {
   const [patientName, setPatientName] = useState('');
   const [patientId, setPatientId] = useState(null);
   const [metrics, setMetrics] = useState({});
-  const [lastAt, setLastAt] = useState(null);
-  const pollRef = useRef(null);
 
-  // Cargar perfil y vínculo persistido
   useEffect(() => {
-    (async () => {
-      try { const raw = await AsyncStorage.getItem(PROFILE_KEY); if (raw) setProfile(JSON.parse(raw)); } catch {}
-      try {
-        const linkRaw = await AsyncStorage.getItem(CARE_LINK_KEY);
-        if (linkRaw) {
-          const link = JSON.parse(linkRaw);
-          setPatientId(link.patientId || null);
-          setPatientName(link.patientName || '');
-        }
-      } catch {}
-    })();
+    AsyncStorage.getItem(PROFILE_KEY)
+      .then(raw => raw && setProfile(JSON.parse(raw)))
+      .catch(console.error);
   }, []);
 
-  // Guardar vínculo
-  const persistLink = async (pId, pName) => {
-    try { await AsyncStorage.setItem(CARE_LINK_KEY, JSON.stringify({ patientId: pId, patientName: pName })); } catch {}
-  };
-  const clearLink = async () => { try { await AsyncStorage.removeItem(CARE_LINK_KEY); } catch {} };
-
-  // fetch + polling
   useEffect(() => {
-    if (!patientId) {
-      setMetrics({});
-      setLastAt(null);
-      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-      return;
-    }
-
-    const fetchOnce = async () => {
+    if (!patientId) return;
+    (async () => {
       try {
         const res = await fetch(`${BACKEND_URL}/metrics/patient/${patientId}`);
         const data = await res.json();
         const map = {};
-        (Array.isArray(data) ? data : []).forEach(m => { map[m.metric] = m; });
+        data.forEach(m => { map[m.metric] = m; });
         setMetrics(map);
-        setLastAt(new Date());
-      } catch {}
-    };
-
-    fetchOnce();
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(fetchOnce, 15000);
-
-    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+      } catch (e) {
+        console.error(e);
+      }
+    })();
   }, [patientId]);
 
   const openModal = () => {
@@ -94,12 +64,18 @@ export default function CuidadorScreen({ onCongratulate }) {
   };
 
   const generateCode = async () => {
-    if (!profile.email || !profile.name) return Alert.alert('Error', 'Completa tu perfil primero.');
+    if (!profile.email || !profile.name) {
+      return Alert.alert('Error', 'Completa tu perfil primero.');
+    }
     setLoading(true);
     try {
       const res = await fetch(`${BACKEND_URL}/caregiver/code`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ patient_email: profile.email, patient_name: profile.name }),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patient_email: profile.email,
+          patient_name: profile.name,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Error');
@@ -107,57 +83,56 @@ export default function CuidadorScreen({ onCongratulate }) {
       setMode('generate');
     } catch (e) {
       Alert.alert('Error', e.message);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const joinWithCode = async () => {
-    if (!joinCode.trim()) return Alert.alert('Error', 'Ingresa un código.');
+    if (!joinCode.trim()) {
+      return Alert.alert('Error', 'Ingresa un código.');
+    }
     setLoading(true);
     try {
       const res = await fetch(`${BACKEND_URL}/caregiver/join`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: joinCode, caregiver_email: profile.email, caregiver_name: profile.name }),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: joinCode,
+          caregiver_email: profile.email,
+          caregiver_name: profile.name,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Código inválido');
       setPatientName(data.patient_name);
       setPatientId(data.patient_id);
-      await persistLink(data.patient_id, data.patient_name);
       Alert.alert('¡Éxito!', `Cuidas a ${data.patient_name}`);
       setModalVisible(false);
     } catch (e) {
       Alert.alert('Error', e.message);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const unlink = async () => {
-    setPatientId(null);
-    setPatientName('');
-    setMetrics({});
-    setLastAt(null);
-    await clearLink();
-    Alert.alert('Listo', 'Se desvinculó el paciente.');
+  const copyCode = () => {
+    Clipboard.setString(invitationCode);
+    Alert.alert('Copiado', 'Código copiado al portapapeles');
   };
 
-  const copyCode = () => { Clipboard.setStringAsync(invitationCode); Alert.alert('Copiado', 'Código copiado al portapapeles'); };
-  const shareLink = () => { const link = `${BACKEND_URL}/join?code=${invitationCode}`; Share.share({ message: `Únete como cuidador: ${link}` }); };
-
-  // formateo seguro
-  const linked = !!patientId;
-  const hrText   = linked ? (metrics.heart_rate?.value != null ? `${metrics.heart_rate.value} bpm` : '—') : '0 bpm';
-  const bpText   = linked ? (metrics.blood_pressure?.value ? `${metrics.blood_pressure.value} mmHg` : '—') : '0 mmHg';
-  const moodText = linked ? (metrics.mood?.value ?? '—') : '—';
-  const stepsTxt = linked ? (metrics.steps?.value ?? '—') : '0';
-  const sleepTxt = linked ? (metrics.sleep?.value != null ? `${metrics.sleep.value} h` : '—') : '0 h';
-  const spo2Txt  = linked ? (metrics.spo2?.value != null ? `${metrics.spo2.value}%` : '—') : '0 %';
+  const shareLink = () => {
+    const link = `${BACKEND_URL}/join?code=${invitationCode}`;
+    Share.share({ message: `Únete como cuidador: ${link}` });
+  };
 
   const metricsList = [
-    ['FC',    hrText],
-    ['PA',    bpText],
-    ['Ánimo', moodText],
-    ['Pasos', stepsTxt],
-    ['Sueño', sleepTxt],
-    ['SPO₂',  spo2Txt],
+    ['FC', metrics.heart_rate?.value + 'bpm'],
+    ['PA', metrics.blood_pressure?.value + 'mmHg'],
+    ['Ánimo', metrics.mood?.value],
+    ['Pasos', metrics.steps?.value],
+    ['Sueño', metrics.sleep?.value + 'h'],
+    ['SPO₂', metrics.spo2?.value + '%'],
   ];
 
   return (
@@ -169,13 +144,14 @@ export default function CuidadorScreen({ onCongratulate }) {
         </TouchableOpacity>
       </View>
 
-      <CustomText style={styles.patientName}>{patientName || 'Paciente'}</CustomText>
-      {lastAt && <CustomText style={styles.lastAt}>Última actualización: {lastAt.toLocaleTimeString()}</CustomText>}
+      <CustomText style={styles.patientName}>
+        {patientName || 'Paciente'}
+      </CustomText>
 
       <View style={styles.grid}>
         {metricsList.map(([label, val]) => (
           <View key={label} style={styles.card}>
-            <CustomText style={styles.value}>{val}</CustomText>
+            <CustomText style={styles.value}>{val || '—'}</CustomText>
             <CustomText style={styles.label}>{label}</CustomText>
           </View>
         ))}
@@ -189,32 +165,54 @@ export default function CuidadorScreen({ onCongratulate }) {
         textStyle={styles.congratsText}
       />
 
-      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+      <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.overlay}>
           <View style={styles.modal}>
-            <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeBtn}>
+            <TouchableOpacity
+              onPress={() => setModalVisible(false)}
+              style={styles.closeBtn}
+            >
               <CustomText style={styles.closeText}>×</CustomText>
             </TouchableOpacity>
 
-            {loading && <ActivityIndicator size="small" color={theme.colors.accent} style={{ marginVertical: 4 }} />}
+            {loading && (
+              <ActivityIndicator size="small" color={theme.colors.accent} style={{ marginVertical: 4 }} />
+            )}
 
             {!loading && mode === null && (
               <>
-                {!linked && (
-                  <>
-                    <CustomButton title="Código" onPress={generateCode} variant="primary" style={styles.modalBtn} />
-                    <CustomButton title="Unirse" onPress={() => setMode('join')} variant="outline" style={styles.modalBtn} />
-                  </>
-                )}
-                {linked && <CustomButton title="Desvincular" onPress={unlink} variant="outline" style={styles.modalBtn} />}
+                <CustomButton
+                  title="Código"
+                  onPress={generateCode}
+                  variant="primary"
+                  style={styles.modalBtn}
+                />
+                <CustomButton
+                  title="Unirse"
+                  onPress={() => setMode('join')}
+                  variant="outline"
+                  style={styles.modalBtn}
+                />
               </>
             )}
 
             {!loading && mode === 'generate' && (
               <>
-                <CustomText style={styles.modalTitle}>{invitationCode}</CustomText>
-                <CustomButton title="Copiar" onPress={copyCode} variant="outline" style={styles.modalBtn} />
-                <CustomButton title="Compartir" onPress={shareLink} variant="outline" style={styles.modalBtn} />
+                <CustomText style={styles.modalTitle}>
+                  {invitationCode}
+                </CustomText>
+                <CustomButton
+                  title="Copiar"
+                  onPress={copyCode}
+                  variant="outline"
+                  style={styles.modalBtn}
+                />
+                <CustomButton
+                  title="Compartir"
+                  onPress={shareLink}
+                  variant="outline"
+                  style={styles.modalBtn}
+                />
               </>
             )}
 
@@ -228,7 +226,12 @@ export default function CuidadorScreen({ onCongratulate }) {
                   value={joinCode}
                   onChangeText={setJoinCode}
                 />
-                <CustomButton title="Ir" onPress={joinWithCode} variant="primary" style={styles.modalBtn} />
+                <CustomButton
+                  title="Ir"
+                  onPress={joinWithCode}
+                  variant="primary"
+                  style={styles.modalBtn}
+                />
               </>
             )}
           </View>
@@ -244,14 +247,34 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     borderRadius: theme.shape.borderRadius,
     marginBottom: theme.spacing.sm,
-    ...Platform.select({ ios: { shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.1, shadowRadius:1 }, android: { elevation:1 } }),
+    ...Platform.select({
+      ios: { shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.1, shadowRadius:1 },
+      android: { elevation:1 },
+    }),
   },
-  headerRow: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom: theme.spacing.xs },
-  header: { fontSize: theme.fontSizes.md, fontFamily: theme.typTypography?.heading?.fontFamily || theme.typography.heading.fontFamily, color: theme.colors.textPrimary },
-  patientName: { fontSize: theme.fontSizes.md, fontFamily: theme.typTypography?.heading?.fontFamily || theme.typography.heading.fontFamily, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs },
-  lastAt: { fontSize: theme.fontSizes.xs || 10, color: theme.colors.textSecondary, marginBottom: theme.spacing.xs, fontFamily: theme.typography.body.fontFamily },
-
-  grid: { flexDirection:'row', flexWrap:'wrap', justifyContent:'space-between', marginBottom: theme.spacing.xs },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent:'space-between',
+    alignItems:'center',
+    marginBottom: theme.spacing.xs,
+  },
+  header: {
+    fontSize: theme.fontSizes.md,
+    fontFamily: theme.typography.heading.fontFamily,
+    color: theme.colors.textPrimary,
+  },
+  patientName: {
+    fontSize: theme.fontSizes.md,
+    fontFamily: theme.typography.heading.fontFamily,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.xs,
+  },
+  grid: {
+    flexDirection:'row',
+    flexWrap:'wrap',
+    justifyContent:'space-between',
+    marginBottom: theme.spacing.xs,
+  },
   card: {
     width:'30%',
     backgroundColor: theme.colors.background,
@@ -259,18 +282,61 @@ const styles = StyleSheet.create({
     padding: theme.spacing.xs,
     marginBottom: theme.spacing.xs,
     alignItems:'center',
-    ...Platform.select({ ios: { shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.05, shadowRadius:1 }, android: { elevation:1 } }),
+    ...Platform.select({
+      ios: { shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.05, shadowRadius:1 },
+      android: { elevation:1 },
+    }),
   },
-  value: { fontSize: theme.fontSizes.sm, fontFamily: theme.typTypography?.subtitle?.fontFamily || theme.typography.subtitle.fontFamily, color: theme.colors.textPrimary, marginBottom: theme.spacing.xs / 2, textAlign:'center' },
-  label: { fontSize: theme.fontSizes.xs || 10, fontFamily: theme.typography.body.fontFamily, color: theme.colors.textSecondary, textAlign:'center' },
-  congratsBtn: { alignSelf: 'flex-end', paddingHorizontal: theme.spacing.sm, paddingVertical: theme.spacing.xs },
-  congratsText: { fontSize: theme.fontSizes.sm, color: theme.colors.background },
-
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', justifyContent: 'center', alignItems: 'center' },
-  modal: { width: '70%', backgroundColor: theme.colors.surface, borderRadius: theme.shape.borderRadius, padding: theme.spacing.sm },
+  value: {
+    fontSize: theme.fontSizes.sm,
+    fontFamily: theme.typography.subtitle.fontFamily,
+    color: theme.colors.textPrimary,
+    marginBottom: theme.spacing.xs / 2,
+  },
+  label: {
+    fontSize: theme.fontSizes.xs || 10,
+    fontFamily: theme.typography.body.fontFamily,
+    color: theme.colors.textSecondary,
+  },
+  congratsBtn: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+  },
+  congratsText: {
+    fontSize: theme.fontSizes.sm,
+    color: theme.colors.background,
+  },
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modal: {
+    width: '70%',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.shape.borderRadius,
+    padding: theme.spacing.sm,
+  },
   closeBtn: { position: 'absolute', top: theme.spacing.xs, right: theme.spacing.xs },
   closeText: { fontSize: theme.fontSizes.lg, color: theme.colors.textSecondary },
-  modalTitle: { fontSize: theme.fontSizes.md, fontFamily: theme.typTypography?.subtitle?.fontFamily || theme.typography.subtitle.fontFamily, color: theme.colors.textPrimary, textAlign: 'center', marginVertical: theme.spacing.sm },
-  modalInput: { borderWidth: 1, borderColor: theme.colors.outline, borderRadius: theme.shape.borderRadius, padding: theme.spacing.sm, marginBottom: theme.spacing.sm, fontFamily: theme.typography.body.fontFamily, color: theme.colors.textPrimary, textAlign: 'center' },
+  modalTitle: {
+    fontSize: theme.fontSizes.md,
+    fontFamily: theme.typTypography?.subtitle?.fontFamily || theme.typography.subtitle.fontFamily,
+    color: theme.colors.textPrimary,
+    textAlign: 'center',
+    marginVertical: theme.spacing.sm,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: theme.colors.outline,
+    borderRadius: theme.shape.borderRadius,
+    padding: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
+    fontFamily: theme.typography.body.fontFamily,
+    color: theme.colors.textPrimary,
+    textAlign: 'center',
+  },
   modalBtn: { marginBottom: theme.spacing.xs },
 });
