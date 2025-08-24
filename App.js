@@ -1,12 +1,15 @@
 // App.js
-// Modal emergente de permisos (restaurado).
-// No crea archivos nuevos: el modal vive aquí y se monta debajo del navigator.
-
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, Modal, AppState, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import RootNavigator from './RootNavigator'; // tu navigator existente
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
 
+// Tus pantallas existentes
+import SaludScreen from './SaludScreen';
+import CuidadoPersonalScreen from './CuidadoPersonalScreen';
+
+// Health Connect helpers (ya en health.js)
 import {
   hcGetStatusDebug,
   hasAllPermissions,
@@ -14,10 +17,28 @@ import {
   hcOpenSettings,
 } from './health';
 
+const Tab = createBottomTabNavigator();
+
 export default function App() {
   return (
     <NavigationContainer>
-      <RootNavigator />
+      <Tab.Navigator
+        screenOptions={({ route }) => ({
+          headerShown: true,
+          tabBarIcon: ({ color, size }) => {
+            const map = {
+              Salud: 'heart-outline',
+              Cuidado: 'people-outline',
+            };
+            return <Ionicons name={map[route.name] || 'ellipse-outline'} size={size} color={color} />;
+          },
+        })}
+      >
+        <Tab.Screen name="Salud" component={SaludScreen} />
+        <Tab.Screen name="Cuidado" component={CuidadoPersonalScreen} />
+      </Tab.Navigator>
+
+      {/* Modal emergente que solicita permisos al inicio y al volver de HC */}
       <HealthPermissionModal />
     </NavigationContainer>
   );
@@ -40,6 +61,8 @@ function HealthPermissionModal() {
       const okPerms = okAvail ? await hasAllPermissions() : false;
       setGranted(!!okPerms);
       setVisible(Platform.OS === 'android' && (!okAvail || !okPerms));
+
+      // Si HC está disponible y faltan permisos, solicita automáticamente una vez
       if (okAvail && !okPerms && !autoTried.current) {
         autoTried.current = true;
         setBusy(true);
@@ -55,7 +78,7 @@ function HealthPermissionModal() {
     } catch {
       setAvailable(false);
       setGranted(false);
-      setVisible(Platform.OS === 'android'); // muestra por si acaso
+      setVisible(Platform.OS === 'android'); // por si acaso
       setStatusText('STATUS_ERROR');
     }
   }, []);
