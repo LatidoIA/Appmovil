@@ -1,7 +1,6 @@
 // health.js (RAÍZ)
-// Única fuente de verdad para Health Connect.
-// Incluye: quickSetup, estado/debug, permisos, y lecturas: Steps, HeartRate, SpO2, Sleep(24h), BloodPressure, Stress.
-// Defensivo ante diferencias de campos según versión de la lib.
+// Permisos y lecturas SIN auto-solicitar dentro de las lecturas.
+// El gating lo hace el modal de App.js (quickSetup).
 
 import { Platform, Linking } from 'react-native';
 import {
@@ -12,20 +11,18 @@ import {
   readRecords,
   openHealthConnectSettings,
   openHealthConnectDataManagement,
-  // algunas versiones exponen getGrantedPermissions; lo manejamos con try/catch
 } from 'react-native-health-connect';
 
-// ---- Permisos mínimos para tus métricas ----
+// Permisos mínimos (puedes recortar si no usas alguno)
 const PERMS = [
   { accessType: 'read', recordType: 'Steps' },
   { accessType: 'read', recordType: 'HeartRate' },
   { accessType: 'read', recordType: 'OxygenSaturation' },
   { accessType: 'read', recordType: 'SleepSession' },
   { accessType: 'read', recordType: 'BloodPressure' },
-  { accessType: 'read', recordType: 'Stress' }, // si no existe, leerá en try/catch
+  { accessType: 'read', recordType: 'Stress' }, // si tu lib no lo soporta, se ignora en catch
 ];
 
-// ---- Mapa legible de estados del SDK ----
 const statusLabel = {
   [SdkAvailabilityStatus.SDK_AVAILABLE]: 'SDK_AVAILABLE',
   [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED]: 'PROVIDER_UPDATE_REQUIRED',
@@ -65,23 +62,6 @@ export async function requestAllPermissions() {
   return hasAllPermissions();
 }
 
-// Lista “humana” de permisos concedidos (si la lib lo soporta)
-export async function getGrantedList() {
-  if (Platform.OS !== 'android') return [];
-  try {
-    // @ts-ignore — algunas versiones exponen getGrantedPermissions
-    const { getGrantedPermissions } = require('react-native-health-connect');
-    if (typeof getGrantedPermissions === 'function') {
-      const granted = await getGrantedPermissions();
-      // normaliza a array de nombres de recordType
-      return (granted || []).map(g => g.recordType || g.name).filter(Boolean);
-    }
-  } catch {}
-  // Fallback: si hasPermissions devuelve true, devolvemos PERMS nominales
-  const ok = await hasAllPermissions();
-  return ok ? PERMS.map(p => p.recordType) : [];
-}
-
 export async function quickSetup() {
   if (Platform.OS !== 'android') return false;
   try {
@@ -97,9 +77,8 @@ export async function quickSetup() {
   }
 }
 
-// ------------------ LECTURAS ------------------
+// ---- LECTURAS (asumen que ya hay permisos) ----
 
-// Steps (hoy, sumatoria)
 export async function readTodaySteps() {
   if (Platform.OS !== 'android') return { steps: 0, origins: [], asOf: null };
   try {
@@ -109,7 +88,6 @@ export async function readTodaySteps() {
       timeRangeFilter: { operator: 'between', startTime: start.toISOString(), endTime: end.toISOString() },
     });
     const total = records.reduce((sum, r) => sum + (r?.count ?? r?.steps ?? 0), 0);
-    // orígenes
     const origins = Array.from(new Set(records.map(r => r?.metadata?.dataOrigin?.packageName).filter(Boolean)));
     return { steps: total, origins, asOf: end.toISOString() };
   } catch {
@@ -117,7 +95,6 @@ export async function readTodaySteps() {
   }
 }
 
-// HeartRate (última muestra en 48h)
 export async function readLatestHeartRate() {
   if (Platform.OS !== 'android') return { bpm: null, at: null, origin: null };
   try {
@@ -130,7 +107,6 @@ export async function readLatestHeartRate() {
     });
     if (!records.length) return { bpm: null, at: null, origin: null };
     const rec = records[0];
-    // samples array o valor directo
     let bpm = null;
     let at = rec?.endTime ?? null;
     if (Array.isArray(rec.samples) && rec.samples.length) {
@@ -147,7 +123,6 @@ export async function readLatestHeartRate() {
   }
 }
 
-// SpO2 (última muestra 72h)
 export async function readLatestSpO2() {
   if (Platform.OS !== 'android') return { spo2: null, at: null, origin: null };
   try {
@@ -160,7 +135,6 @@ export async function readLatestSpO2() {
     });
     if (!records.length) return { spo2: null, at: null, origin: null };
     const rec = records[0];
-    // distintos nombres según versión
     const spo2 = rec?.percentage ?? rec?.oxygenSaturation ?? rec?.value ?? null;
     const at = rec?.time ?? rec?.endTime ?? null;
     const origin = rec?.metadata?.dataOrigin?.packageName ?? null;
@@ -170,7 +144,6 @@ export async function readLatestSpO2() {
   }
 }
 
-// Sleep (últimas 24h) — total en horas
 export async function readSleepLast24h() {
   if (Platform.OS !== 'android') return { hours: null, rangeStart: null, rangeEnd: null, origins: [] };
   try {
@@ -197,7 +170,6 @@ export async function readSleepLast24h() {
   }
 }
 
-// Blood Pressure (última lectura 14 días)
 export async function readLatestBloodPressure() {
   if (Platform.OS !== 'android') return { sys: null, dia: null, at: null, origin: null };
   try {
@@ -210,7 +182,6 @@ export async function readLatestBloodPressure() {
     });
     if (!records.length) return { sys: null, dia: null, at: null, origin: null };
     const r = records[0];
-    // diferentes formas: {systolic:{value}, diastolic:{value}} o {systolic:120, diastolic:80} o {sys, dia}
     const sys = r?.systolic?.value ?? r?.systolic ?? r?.sys ?? null;
     const dia = r?.diastolic?.value ?? r?.diastolic ?? r?.dia ?? null;
     const at = r?.endTime ?? r?.time ?? null;
@@ -221,7 +192,6 @@ export async function readLatestBloodPressure() {
   }
 }
 
-// Stress (último 72h) — puede NO existir; devolvemos null si la lib no lo soporta
 export async function readLatestStress() {
   if (Platform.OS !== 'android') return { value: null, label: null, at: null };
   try {
@@ -234,9 +204,9 @@ export async function readLatestStress() {
     });
     if (!records.length) return { value: null, label: null, at: null };
     const r = records[0];
-    const v = r?.level ?? r?.value ?? null; // 0-100 o escala propia
-    let label = null;
+    const v = r?.level ?? r?.value ?? null;
     const n = Number(v);
+    let label = null;
     if (!Number.isNaN(n)) {
       if (n < 33) label = 'Bajo';
       else if (n < 66) label = 'Normal';
