@@ -1,15 +1,13 @@
-// App.js
+// App.js — Tabs simples + modal emergente de permisos que SÍ actúa
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, Modal, AppState, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 
-// Tus pantallas existentes
 import SaludScreen from './SaludScreen';
 import CuidadoPersonalScreen from './CuidadoPersonalScreen';
 
-// Health Connect helpers (ya en health.js)
 import {
   hcGetStatusDebug,
   hasAllPermissions,
@@ -26,10 +24,7 @@ export default function App() {
         screenOptions={({ route }) => ({
           headerShown: true,
           tabBarIcon: ({ color, size }) => {
-            const map = {
-              Salud: 'heart-outline',
-              Cuidado: 'people-outline',
-            };
+            const map = { Salud: 'heart-outline', Cuidado: 'people-outline' };
             return <Ionicons name={map[route.name] || 'ellipse-outline'} size={size} color={color} />;
           },
         })}
@@ -38,7 +33,6 @@ export default function App() {
         <Tab.Screen name="Cuidado" component={CuidadoPersonalScreen} />
       </Tab.Navigator>
 
-      {/* Modal emergente que solicita permisos al inicio y al volver de HC */}
       <HealthPermissionModal />
     </NavigationContainer>
   );
@@ -62,7 +56,6 @@ function HealthPermissionModal() {
       setGranted(!!okPerms);
       setVisible(Platform.OS === 'android' && (!okAvail || !okPerms));
 
-      // Si HC está disponible y faltan permisos, solicita automáticamente una vez
       if (okAvail && !okPerms && !autoTried.current) {
         autoTried.current = true;
         setBusy(true);
@@ -78,7 +71,7 @@ function HealthPermissionModal() {
     } catch {
       setAvailable(false);
       setGranted(false);
-      setVisible(Platform.OS === 'android'); // por si acaso
+      setVisible(Platform.OS === 'android');
       setStatusText('STATUS_ERROR');
     }
   }, []);
@@ -87,6 +80,12 @@ function HealthPermissionModal() {
     check();
     const sub = AppState.addEventListener('change', (s) => { if (s === 'active') check(); });
     return () => sub.remove();
+  }, [check]);
+
+  // abre automáticamente al montar si falta algo (por si el autoTried tarda)
+  useEffect(() => {
+    const t = setTimeout(() => { check(); }, 300);
+    return () => clearTimeout(t);
   }, [check]);
 
   if (!visible) return null;
@@ -117,7 +116,7 @@ function HealthPermissionModal() {
           {available && !granted && (
             <>
               <Text style={{ color:'#333', marginBottom:8 }}>
-                Otorga acceso de lectura a Pasos, FC, Sueño, SpO₂ y Presión Arterial.
+                Otorga acceso de lectura a Pasos y Frecuencia Cardíaca.
               </Text>
               {busy ? (
                 <Busy label="Solicitando permisos…" />
