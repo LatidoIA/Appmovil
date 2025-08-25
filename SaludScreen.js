@@ -1,7 +1,8 @@
-// SaludScreen.js — UI “natural” sin UI de permisos. Refresca cada 15s y muestra HR/Pasos.
-// (Las demás tarjetas pueden agregarse luego; por ahora no pedimos permisos aquí)
+// SaludScreen.js (RAÍZ)
+// Fusión: UI original + motor de métricas con Health Connect + auto-refresh 15s.
+// Mantiene helpers de Farmacia, ánimo, LatidoPower y Cuidador.
 
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   ScrollView,
@@ -14,23 +15,31 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { LatidoPower } from './LatidoPower';
 import CustomText from './CustomText';
 import CuidadorScreen from './CuidadorScreen';
 import theme from './theme';
 
-import { readTodaySteps, readLatestHeartRate } from './health';
+// --- Health Connect (reemplaza SamsungHealth) ---
+import {
+  quickSetup,
+  readTodaySteps,
+  readLatestHeartRate,
+  readLatestSpO2,
+  readSleepLast24h,
+} from './health';
 
 const PROFILE_KEY = '@latido_profile';
 const MEDS_KEY = '@latido_meds';
-const REFRESH_MS = 15000;
 
 // ---------- Helpers Vital ----------
 function computeVital(metrics = {}, mood) {
   const vals = [];
-  if (metrics.heart_rate != null) vals.push(Math.min(metrics.heart_rate / 180 * 100, 100));
-  if (metrics.steps      != null) vals.push(Math.min(metrics.steps        / 10000 * 100, 100));
+  if (metrics.heart_rate != null) vals.push(Math.min((metrics.heart_rate / 180) * 100, 100));
+  if (metrics.steps      != null) vals.push(Math.min((metrics.steps / 10000) * 100, 100));
+  if (metrics.sleep      != null) vals.push(Math.min((metrics.sleep / 8) * 100, 100));
+  if (metrics.spo2       != null) vals.push(metrics.spo2);
   if (mood === '😊') vals.push(100);
   else if (mood === '😐') vals.push(50);
   else if (mood === '😔') vals.push(0);
@@ -40,7 +49,7 @@ function computeVital(metrics = {}, mood) {
   return { score: avg, color };
 }
 
-// ---------- Helpers Farmacia ----------
+// ---------- Helpers Farmacia (tiempos) ----------
 function defaultTime() {
   const d = new Date();
   const hh = String(d.getHours()).padStart(2, '0');
@@ -77,6 +86,7 @@ function secondsUntilNextFromStart(startHHMM, intervalHours) {
   const { hh, mm } = startHHMM || { hh: now.getHours(), mm: now.getMinutes() };
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
   const stepMs = Math.max(1, parseInt(intervalHours, 10)) * 3600 * 1000;
+
   if (now.getTime() <= startToday.getTime()) {
     return Math.ceil((startToday.getTime() - now.getTime()) / 1000);
   }
@@ -116,9 +126,10 @@ export default function SaludScreen() {
   const [power, setPower] = useState({ score: 0, color: theme.colors.primary });
 
   // Próximo ítem de Farmacia
-  const [nextInfo, setNextInfo] = useState(null);
-  const [nowTick, setNowTick] = useState(Date.now());
+  const [nextInfo, setNextInfo] = useState(null); // { item, nextAt: Date, isPaused: boolean }
+  const [nowTick, setNowTick] = useState(Date.now()); // para refrescar cuenta regresiva
   const etaTimerRef = useRef(null);
+  const intervalRef = useRef(null);
 
   // Cargar perfil
   useEffect(() => {
@@ -128,65 +139,40 @@ export default function SaludScreen() {
   }, []);
 
   // Cargar meds y calcular “próximo”
-  const recomputeNext = useCallback(async () => {
+  const recomputeNext = async () => {
     try {
       const raw = await AsyncStorage.getItem(MEDS_KEY);
       const arr = raw ? JSON.parse(raw) : [];
       if (!arr.length) { setNextInfo(null); return; }
+
       const ensureSchedule = (x) => x.schedule
         ? x
         : { ...x, schedule: { mode: 'hora', time: x.time || defaultTime(), everyHours: null, startTime: null } };
+
       const all = arr.map(ensureSchedule);
+
       const active = all.filter(x => !!x.reminderOn);
       const candidates = active.length ? active : all;
+
       const withNext = candidates
         .map(x => ({ x, nextAt: nextOccurrenceForItem(x) }))
         .filter(y => !!y.nextAt)
         .sort((a, b) => a.nextAt.getTime() - b.nextAt.getTime());
+
       if (!withNext.length) { setNextInfo(null); return; }
+
       const { x: item, nextAt } = withNext[0];
       setNextInfo({ item, nextAt, isPaused: !item.reminderOn });
     } catch {
       setNextInfo(null);
     }
-  }, []);
+  };
 
   useEffect(() => {
     recomputeNext();
     const unsub = navigation.addListener('focus', recomputeNext);
     return unsub;
-  }, [navigation, recomputeNext]);
-
-  // Permisos Android base (del SO, NO de Health Connect)
-  useEffect(() => {
-    if (Platform.OS === 'android') {
-      PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS).catch(() => {});
-      PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION).catch(() => {});
-    }
-  }, []);
-
-  // Fetch métricas (HR + Steps) cada 15s
-  const fetchMetrics = useCallback(async () => {
-    try {
-      const [hr, st] = await Promise.all([readLatestHeartRate(), readTodaySteps()]);
-      const newMetrics = {
-        heart_rate: hr?.bpm ?? null,
-        steps: st?.steps ?? null,
-      };
-      setMetrics(newMetrics);
-      const { score, color } = computeVital(newMetrics, mood);
-      setPower({ score, color });
-    } catch {}
-  }, [mood]);
-
-  useFocusEffect(
-    useCallback(() => {
-      let mounted = true;
-      (async () => { if (mounted) await fetchMetrics(); })();
-      const id = setInterval(() => { fetchMetrics().catch(() => {}); }, REFRESH_MS);
-      return () => { mounted = false; clearInterval(id); };
-    }, [fetchMetrics])
-  );
+  }, [navigation]);
 
   // Timer de cuenta regresiva (1s)
   useEffect(() => {
@@ -194,6 +180,61 @@ export default function SaludScreen() {
     etaTimerRef.current = setInterval(() => setNowTick(Date.now()), 1000);
     return () => { etaTimerRef.current && clearInterval(etaTimerRef.current); };
   }, []);
+
+  // Recalcular cuando pase la hora objetivo
+  useEffect(() => {
+    if (!nextInfo?.nextAt) return;
+    if (Date.now() - nextInfo.nextAt.getTime() >= 0) {
+      recomputeNext();
+    }
+  }, [nowTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Permisos Android básicos
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BODY_SENSORS).catch(() => {});
+      PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACTIVITY_RECOGNITION).catch(() => {});
+    }
+  }, []);
+
+  // Intento de setup HC una vez (si falta permiso abrirá el sheet)
+  useEffect(() => {
+    quickSetup().catch(() => {});
+  }, []);
+
+  // Fetch métricas cada 15s (Health Connect)
+  useEffect(() => {
+    async function fetchMetrics() {
+      try {
+        const [hr, st, sp, sl] = await Promise.all([
+          readLatestHeartRate(),   // { bpm, at, origin }
+          readTodaySteps(),        // { steps, ... }
+          readLatestSpO2(),        // { spo2, ... }
+          readSleepLast24h(),      // { hours, ... }
+        ]);
+
+        const newMetrics = {
+          heart_rate: hr?.bpm ?? null,
+          steps: st?.steps ?? null,
+          sleep: sl?.hours ?? null,
+          spo2: sp?.spo2 ?? null,
+        };
+        setMetrics(newMetrics);
+        const { score, color } = computeVital(newMetrics, mood);
+        setPower({ score, color });
+      } catch {
+        // métricas se mantienen
+      }
+    }
+
+    // primera carga + intervalo
+    fetchMetrics();
+    intervalRef.current && clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(fetchMetrics, 15000);
+    return () => {
+      intervalRef.current && clearInterval(intervalRef.current);
+    };
+  }, [mood]);
 
   const submitMood = choice => {
     setMood(choice);
@@ -205,15 +246,24 @@ export default function SaludScreen() {
   const metricsList = [
     ['Frecuencia cardíaca', metrics.heart_rate != null ? `${metrics.heart_rate} bpm` : '—'],
     ['Pasos',               metrics.steps != null ? metrics.steps : '—'],
+    ['Sueño',               metrics.sleep != null ? `${metrics.sleep} h` : '—'],
+    ['SpO₂',                metrics.spo2 != null ? `${metrics.spo2} %` : '—']
   ];
 
+  // --------- UI Próximo medicamento/suplemento ----------
   const renderNextPharma = () => {
     const goFarmacia = () => navigation.navigate('Cuidado', { initialTab: 'Farmacia' });
+
     return (
       <TouchableOpacity style={styles.nextMedContainer} onPress={goFarmacia} activeOpacity={0.8}>
-        <Ionicons name="medkit-outline" size={24} color={theme.colors.textPrimary} />
+        <Ionicons
+          name="medkit-outline"
+          size={24}
+          color={theme.colors.textPrimary}
+        />
         <View style={styles.nextMedInfo}>
           <CustomText style={styles.nextMedLabel}>Próximo medicamento/suplemento</CustomText>
+
           {!nextInfo ? (
             <CustomText style={styles.emptyText}>Sin registro</CustomText>
           ) : (
@@ -221,6 +271,7 @@ export default function SaludScreen() {
               <CustomText style={styles.nextMedText}>
                 {nextInfo.item.name}{nextInfo.item.dose ? ` — ${nextInfo.item.dose}` : ''}
               </CustomText>
+
               <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 }}>
                 <CustomText style={styles.nextMeta}>
                   {nextInfo.item.schedule?.mode === 'hora'
@@ -269,6 +320,7 @@ export default function SaludScreen() {
 
       {renderNextPharma()}
 
+      {/* Cuidador: conserva integración existente */}
       <CuidadorScreen onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')} />
     </ScrollView>
   );
@@ -282,14 +334,17 @@ const styles = StyleSheet.create({
   moodButton: { marginHorizontal: theme.spacing.sm },
   moodEmoji: { fontSize: theme.fontSizes.lg },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: theme.spacing.sm },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: theme.spacing.md },
   card: {
     width: '48%',
     backgroundColor: theme.colors.surface,
     padding: theme.spacing.sm,
     borderRadius: theme.shape.borderRadius,
     marginBottom: theme.spacing.sm,
-    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 }, android: { elevation: 2 } })
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
+      android: { elevation: 2 }
+    })
   },
   metricLabel: { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, marginBottom: theme.spacing.xs, fontFamily: theme.typography.body.fontFamily },
   metricValue: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, fontWeight: '700', fontFamily: theme.typography.subtitle.fontFamily },
@@ -301,16 +356,24 @@ const styles = StyleSheet.create({
     padding: theme.spacing.sm,
     borderRadius: theme.shape.borderRadius,
     marginBottom: theme.spacing.md,
-    ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 }, android: { elevation: 2 } })
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2 },
+      android: { elevation: 2 }
+    })
   },
   nextMedInfo: { marginLeft: theme.spacing.sm, flex: 1 },
   nextMedLabel: { fontSize: theme.fontSizes.md, color: theme.colors.textSecondary, fontFamily: theme.typography.body.fontFamily },
-  nextMedText: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, fontFamily: theme.typTypography?.body?.fontFamily || theme.typography.body.fontFamily },
+  nextMedText: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, fontFamily: theme.typography.body.fontFamily },
   nextMeta: { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, fontFamily: theme.typography.body.fontFamily },
 
   pausedChip: {
-    marginLeft: 8, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999,
-    backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.outline
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.outline
   },
-  pausedChipText: { color: theme.colors.textSecondary, fontSize: 12, fontFamily: theme.typTypography?.body?.fontFamily || theme.typography.body.fontFamily },
+  pausedChipText: { color: theme.colors.textSecondary, fontSize: 12, fontFamily: theme.typTypography?.body?.fontFamily || theme.typography.body.fontFamily }
 });
