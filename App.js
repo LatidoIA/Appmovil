@@ -1,6 +1,6 @@
 // App.js
 import React, { useEffect, useState } from 'react';
-import { View, TouchableOpacity, LogBox, Platform, Modal, Text, Pressable, AppState } from 'react-native';
+import { View, TouchableOpacity, LogBox, Platform } from 'react-native';
 import {
   useFonts,
   Montserrat_400Regular,
@@ -17,33 +17,20 @@ import * as Notifications from 'expo-notifications';
 import CustomText from './CustomText';
 import theme from './theme';
 
-// ✅ Importamos validadores de HC
-import { hcGetStatusDebug, hasAllPermissions, quickSetup, hcOpenSettings } from './health';
+try { const crash = require('./crash'); crash?.install?.(); } catch {}
 
-// (opcional) crash logger temprano
-try {
-  const crash = require('./crash');
-  crash?.install?.();
-} catch {}
-
-// Ignorar warnings conocidos
 LogBox.ignoreLogs([
   '[expo-av]: Expo AV has been deprecated',
   '`expo-notifications` functionality is not fully supported in Expo Go',
   'Cannot read property \'startSpeech\' of null'
 ]);
 
-// Control manual del splash
 try { SplashScreen.preventAutoHideAsync(); } catch {}
 
 const SETTINGS_KEY = '@latido_settings';
-// Streak keys
 const STREAK_CNT  = '@streak_count';
 const STREAK_LAST = '@streak_last_open';
 const STREAK_BEST = '@streak_best';
-
-// Flag informativo
-const HC_WIZ_DONE = '@hc_wizard_done_v2';
 
 function dateOnlyStr(d = new Date()) {
   const y = d.getFullYear();
@@ -62,15 +49,13 @@ function daysBetweenUTC(aStr, bStr) {
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
-/** Carga diferida de screens */
 function lazyScreen(loader) {
   return function Lazy(props) {
     const [C, setC] = React.useState(null);
     useEffect(() => {
       let alive = true;
-      loader()
-        .then(m => { if (alive) setC(() => m.default || m); })
-        .catch(e => console.debug('Lazy load error:', e?.message || e));
+      loader().then(m => { if (alive) setC(() => m.default || m); })
+              .catch(e => console.debug('Lazy load error:', e?.message || e));
       return () => { alive = false; };
     }, []);
     if (!C) return null;
@@ -89,7 +74,6 @@ const MedicationsScreenLazy     = lazyScreen(() => import('./MedicationsScreen')
 
 import { useEmergency } from './useEmergency';
 
-/** Notificaciones diferidas */
 async function setupNotificationsDeferred() {
   try {
     Notifications.setNotificationHandler({
@@ -241,52 +225,8 @@ function MainTabs() {
   );
 }
 
-// ---- Wizard modal de permisos ----
-function HealthWizardModal({ visible, onClose, onGranted }) {
-  const [busy, setBusy] = useState(false);
-
-  return (
-    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' }}>
-        <View style={{ width: '86%', borderRadius: 16, padding: 16, backgroundColor: theme.colors.surface, borderColor: theme.colors.outline, borderWidth: 1 }}>
-          <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 6, color: theme.colors.textPrimary }}>
-            Permitir Salud
-          </Text>
-          <Text style={{ fontSize: 14, color: theme.colors.textSecondary, marginBottom: 16 }}>
-            Para mostrar tus pasos y frecuencia cardíaca, permite el acceso en Health Connect.
-          </Text>
-
-          <Pressable
-            disabled={busy}
-            onPress={async () => {
-              setBusy(true);
-              try {
-                const ok = await quickSetup();
-                if (!ok) await hcOpenSettings(); // abre HC si no se pudo solicitar inline
-                // El cierre real se hará al volver (AppState 'active')
-              } catch {
-                try { await hcOpenSettings(); } catch {}
-              } finally {
-                setBusy(false);
-              }
-            }}
-            style={{ paddingVertical: 12, borderRadius: 12, alignItems: 'center', backgroundColor: busy ? theme.colors.outline : theme.colors.primary }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '600' }}>{busy ? 'Abriendo…' : 'Otorgar permisos'}</Text>
-          </Pressable>
-
-          <Pressable onPress={onClose} style={{ paddingVertical: 10, alignItems: 'center', marginTop: 6 }}>
-            <Text style={{ color: theme.colors.textSecondary }}>Ahora no</Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
 export default function App() {
   const [fontsLoaded] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_700Bold });
-  const [showWizard, setShowWizard] = useState(false);
 
   useEffect(() => {
     if (fontsLoaded) {
@@ -296,7 +236,6 @@ export default function App() {
     }
   }, [fontsLoaded]);
 
-  // Streak
   useEffect(() => {
     (async () => {
       const today = dateOnlyStr(new Date());
@@ -330,35 +269,6 @@ export default function App() {
     })();
   }, []);
 
-  // ✅ Función única para revalidar SDK+permisos y cerrar el wizard
-  const recheckPerms = React.useCallback(async () => {
-    if (Platform.OS !== 'android') { setShowWizard(false); return; }
-    try {
-      const s = await hcGetStatusDebug();
-      const sdkOk = s?.label === 'SDK_AVAILABLE' || s?.status === 0;
-      const permsOk = sdkOk ? await hasAllPermissions() : false;
-      if (sdkOk && permsOk) {
-        setShowWizard(false);
-        try { await AsyncStorage.setItem(HC_WIZ_DONE, '1'); } catch {}
-      } else {
-        setShowWizard(true);
-      }
-    } catch {
-      // si falla el check, no forzamos cierre
-    }
-  }, []);
-
-  // Check inicial
-  useEffect(() => { recheckPerms(); }, [recheckPerms]);
-
-  // ✅ Re-chequeo automático al volver de Health Connect (foreground)
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (s) => {
-      if (s === 'active') recheckPerms();
-    });
-    return () => sub.remove();
-  }, [recheckPerms]);
-
   if (!fontsLoaded) return null;
 
   const navTheme = {
@@ -373,22 +283,14 @@ export default function App() {
   };
 
   return (
-    <>
-      <NavigationContainer theme={navTheme}>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="Main"        component={MainTabs} />
-          <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
-          <Stack.Screen name="Streak"      component={StreakScreenLazy} />
-          <Stack.Screen name="Settings"    component={SettingsScreenLazy} />
-          <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
-        </Stack.Navigator>
-      </NavigationContainer>
-
-      <HealthWizardModal
-        visible={showWizard}
-        onClose={() => setShowWizard(false)}
-        onGranted={recheckPerms}
-      />
-    </>
+    <NavigationContainer theme={navTheme}>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Main"        component={MainTabs} />
+        <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
+        <Stack.Screen name="Streak"      component={StreakScreenLazy} />
+        <Stack.Screen name="Settings"    component={SettingsScreenLazy} />
+        <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
