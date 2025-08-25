@@ -17,8 +17,8 @@ import * as Notifications from 'expo-notifications';
 import CustomText from './CustomText';
 import theme from './theme';
 
-// 👇 CORREGIDO: si tu health.js está en la raíz
-import { hcGetStatusDebug, quickSetup, hcOpenSettings } from './health';
+// ✅ Importa hasAllPermissions para mostrar el wizard si faltan permisos
+import { hcGetStatusDebug, hasAllPermissions, quickSetup, hcOpenSettings } from './health';
 
 // (opcional) crash logger temprano; no debe romper el arranque
 try {
@@ -44,7 +44,7 @@ const STREAK_CNT  = '@streak_count';
 const STREAK_LAST = '@streak_last_open';
 const STREAK_BEST = '@streak_best';
 
-// Wizard (primer uso) key
+// Wizard key (solo informativa; no bloquea si faltan permisos)
 const HC_WIZ_DONE = '@hc_wizard_done_v2';
 
 function dateOnlyStr(d = new Date()) {
@@ -91,7 +91,7 @@ const MedicationsScreenLazy     = lazyScreen(() => import('./MedicationsScreen')
 
 import { useEmergency } from './useEmergency';
 
-/** Inicialización diferida de notificaciones (después del primer render estable) */
+/** Inicialización diferida de notificaciones */
 async function setupNotificationsDeferred() {
   try {
     Notifications.setNotificationHandler({
@@ -245,7 +245,7 @@ function MainTabs() {
   );
 }
 
-// ---- Wizard modal de permisos (primer uso) ----
+// ---- Wizard modal de permisos ----
 function HealthWizardModal({ visible, onClose, onGranted }) {
   const [busy, setBusy] = useState(false);
 
@@ -279,7 +279,7 @@ function HealthWizardModal({ visible, onClose, onGranted }) {
                 } else {
                   await hcOpenSettings();
                 }
-              } catch (e) {
+              } catch {
                 try { await hcOpenSettings(); } catch {}
               } finally {
                 setBusy(false);
@@ -316,6 +316,7 @@ export default function App() {
     }
   }, [fontsLoaded]);
 
+  // Streak
   useEffect(() => {
     (async () => {
       const today = dateOnlyStr(new Date());
@@ -350,20 +351,26 @@ export default function App() {
     })();
   }, []);
 
+  // ✅ Unificación de permisos: mostrar wizard si HC no está ok O si faltan permisos.
   useEffect(() => {
     (async () => {
       if (Platform.OS !== 'android') return;
       try {
-        const done = await AsyncStorage.getItem(HC_WIZ_DONE);
-        if (done === '1') return;
         const s = await hcGetStatusDebug();
-        if (s.status === 0 ||
-            s.label === 'PROVIDER_UPDATE_REQUIRED' ||
-            s.label === 'PROVIDER_DISABLED' ||
-            s.label === 'PROVIDER_NOT_INSTALLED') {
-          setShowWizard(true);
+        const sdkOk = s?.label === 'SDK_AVAILABLE' || s?.status === 0;
+        let permsOk = false;
+        if (sdkOk) {
+          try { permsOk = await hasAllPermissions(); }
+          catch { permsOk = false; }
         }
-      } catch {}
+        // Si el SDK no está ok o faltan permisos -> mostrar wizard
+        if (!sdkOk || !permsOk) {
+          setShowWizard(true);
+        } else {
+          setShowWizard(false);
+          try { await AsyncStorage.setItem(HC_WIZ_DONE, '1'); } catch {}
+        }
+      } catch { /* silencioso */ }
     })();
   }, []);
 
@@ -395,7 +402,7 @@ export default function App() {
       <HealthWizardModal
         visible={showWizard}
         onClose={() => setShowWizard(false)}
-        onGranted={() => {}}
+        onGranted={() => setShowWizard(false)}
       />
     </>
   );
