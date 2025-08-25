@@ -17,6 +17,10 @@ import * as Notifications from 'expo-notifications';
 import CustomText from './CustomText';
 import theme from './theme';
 
+// Auth
+import { AuthProvider, useAuth } from './auth/AuthContext';
+import AuthGate from './auth/AuthGate';
+
 try { const crash = require('./crash'); crash?.install?.(); } catch {}
 
 LogBox.ignoreLogs([
@@ -33,16 +37,13 @@ const STREAK_LAST = '@streak_last_open';
 const STREAK_BEST = '@streak_best';
 
 function dateOnlyStr(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 function daysBetweenUTC(aStr, bStr) {
   const [ay, am, ad] = aStr.split('-').map(n => parseInt(n, 10));
   const [by, bm, bd] = bStr.split('-').map(n => parseInt(n, 10));
-  const a = Date.UTC(ay, am - 1, ad);
-  const b = Date.UTC(by, bm - 1, bd);
+  const a = Date.UTC(ay, am - 1, ad); const b = Date.UTC(by, bm - 1, bd);
   return Math.round((b - a) / (24 * 3600 * 1000));
 }
 
@@ -71,6 +72,7 @@ const ProfileScreenLazy         = lazyScreen(() => import('./ProfileScreen'));
 const StreakScreenLazy          = lazyScreen(() => import('./StreakScreen'));
 const SettingsScreenLazy        = lazyScreen(() => import('./SettingsScreen'));
 const MedicationsScreenLazy     = lazyScreen(() => import('./MedicationsScreen'));
+const ProfileSetupScreenLazy    = lazyScreen(() => import('./ProfileSetupScreen'));
 
 import { useEmergency } from './useEmergency';
 
@@ -78,9 +80,7 @@ async function setupNotificationsDeferred() {
   try {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: false,
-        shouldSetBadge: false
+        shouldShowAlert: true, shouldPlaySound: false, shouldSetBadge: false
       })
     });
 
@@ -118,7 +118,6 @@ function MainTabs() {
       setStreakCount(parseInt(cnt || '0', 10) || 0);
     } catch (e) { console.debug('Load streak badge error:', e?.message || e); }
   }, []);
-
   const loadSettings = React.useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(SETTINGS_KEY);
@@ -131,12 +130,8 @@ function MainTabs() {
   }, []);
 
   useEffect(() => {
-    loadStreak();
-    loadSettings();
-    const unsub = navigation.addListener?.('focus', () => {
-      loadStreak();
-      loadSettings();
-    });
+    loadStreak(); loadSettings();
+    const unsub = navigation.addListener?.('focus', () => { loadStreak(); loadSettings(); });
     return unsub;
   }, [navigation, loadStreak, loadSettings]);
 
@@ -157,33 +152,17 @@ function MainTabs() {
         headerStyle: { backgroundColor: theme.colors.surface },
         headerTintColor: theme.colors.textPrimary,
         headerRight: () => (
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: theme.spacing.md }}>
-            <View style={{ position: 'relative', marginHorizontal: theme.spacing.sm }}>
+          <View style={{ flexDirection:'row', alignItems:'center', marginRight: theme.spacing.md }}>
+            <View style={{ position:'relative', marginHorizontal: theme.spacing.sm }}>
               <TouchableOpacity onPress={() => navigation.navigate('Streak')}>
                 <Ionicons name="flame" size={24} color={theme.colors.accent} />
               </TouchableOpacity>
               {streakCount > 0 && (
-                <View
-                  style={{
-                    position: 'absolute',
-                    top: -6,
-                    right: -10,
-                    minWidth: 18,
-                    height: 18,
-                    borderRadius: 9,
-                    backgroundColor: theme.colors.primary,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    paddingHorizontal: 4
-                  }}
-                >
-                  <CustomText style={{ color: '#fff', fontSize: 10, fontFamily: theme.typography.body.fontFamily }}>
-                    {streakCount}
-                  </CustomText>
+                <View style={{ position:'absolute', top:-6, right:-10, minWidth:18, height:18, borderRadius:9, backgroundColor: theme.colors.primary, alignItems:'center', justifyContent:'center', paddingHorizontal:4 }}>
+                  <CustomText style={{ color:'#fff', fontSize:10, fontFamily: theme.typography.body.fontFamily }}>{streakCount}</CustomText>
                 </View>
               )}
             </View>
-
             <TouchableOpacity onPress={triggerEmergency} style={{ marginHorizontal: theme.spacing.sm }}>
               <Ionicons name="warning" size={24} color={theme.colors.error} />
             </TouchableOpacity>
@@ -208,11 +187,7 @@ function MainTabs() {
         },
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,
-        tabBarLabelStyle: {
-          fontFamily: theme.typography.body.fontFamily,
-          fontSize: theme.typography.body.fontSize,
-          marginBottom: 4,
-        },
+        tabBarLabelStyle: { fontFamily: theme.typography.body.fontFamily, fontSize: theme.typography.body.fontSize, marginBottom: 4 },
         tabBarStyle: { backgroundColor: theme.colors.surface },
       })}
       lazy
@@ -225,8 +200,9 @@ function MainTabs() {
   );
 }
 
-export default function App() {
+function Root() {
   const [fontsLoaded] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_700Bold });
+  const { isProfileCompleted } = useAuth();
 
   useEffect(() => {
     if (fontsLoaded) {
@@ -236,6 +212,7 @@ export default function App() {
     }
   }, [fontsLoaded]);
 
+  // Streak
   useEffect(() => {
     (async () => {
       const today = dateOnlyStr(new Date());
@@ -245,27 +222,17 @@ export default function App() {
           AsyncStorage.getItem(STREAK_LAST),
           AsyncStorage.getItem(STREAK_BEST)
         ]);
-
         let cnt  = parseInt(cr || '0', 10) || 0;
         let best = parseInt(br || '0', 10) || 0;
         const last = lr || null;
-
         if (!last) cnt = 1;
         else {
           const diff = daysBetweenUTC(last, today);
-          if (diff === 1) cnt += 1;
-          else if (diff > 1) cnt = 1;
+          if (diff === 1) cnt += 1; else if (diff > 1) cnt = 1;
         }
         if (cnt > best) best = cnt;
-
-        await AsyncStorage.multiSet([
-          [STREAK_CNT,  String(cnt)],
-          [STREAK_LAST, today],
-          [STREAK_BEST, String(best)]
-        ]);
-      } catch (e) {
-        console.debug('Streak auto-update error:', e?.message || e);
-      }
+        await AsyncStorage.multiSet([[STREAK_CNT, String(cnt)],[STREAK_LAST,today],[STREAK_BEST,String(best)]]);
+      } catch (e) { console.debug('Streak auto-update error:', e?.message || e); }
     })();
   }, []);
 
@@ -273,24 +240,41 @@ export default function App() {
 
   const navTheme = {
     ...DefaultTheme,
-    colors: {
-      ...DefaultTheme.colors,
-      background: theme.colors.background,
-      card: theme.colors.surface,
-      text: theme.colors.textPrimary,
-      border: theme.colors.outline
-    }
+    colors: { ...DefaultTheme.colors, background: theme.colors.background, card: theme.colors.surface, text: theme.colors.textPrimary, border: theme.colors.outline }
   };
 
   return (
     <NavigationContainer theme={navTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Main"        component={MainTabs} />
-        <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
-        <Stack.Screen name="Streak"      component={StreakScreenLazy} />
-        <Stack.Screen name="Settings"    component={SettingsScreenLazy} />
-        <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
+        {isProfileCompleted ? (
+          <>
+            <Stack.Screen name="Main"        component={MainTabs} />
+            <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
+            <Stack.Screen name="Streak"      component={StreakScreenLazy} />
+            <Stack.Screen name="Settings"    component={SettingsScreenLazy} />
+            <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
+          </>
+        ) : (
+          <>
+            <Stack.Screen name="ProfileSetup" component={ProfileSetupScreenLazy} />
+            <Stack.Screen name="Main"         component={MainTabs} />
+            <Stack.Screen name="Profile"      component={ProfileScreenLazy} />
+            <Stack.Screen name="Streak"       component={StreakScreenLazy} />
+            <Stack.Screen name="Settings"     component={SettingsScreenLazy} />
+            <Stack.Screen name="Medications"  component={MedicationsScreenLazy} />
+          </>
+        )}
       </Stack.Navigator>
     </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AuthGate>
+        <Root />
+      </AuthGate>
+    </AuthProvider>
   );
 }
