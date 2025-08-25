@@ -1,6 +1,7 @@
 // SaludScreen.js (RAÍZ)
-// Fusión: UI original + motor de métricas con Health Connect + auto-refresh 15s.
-// Mantiene helpers de Farmacia, ánimo, LatidoPower y Cuidador.
+// UI original + Health Connect + auto-refresh 15s.
+// ✅ Se elimina quickSetup() silencioso para evitar doble flujo.
+// ✅ Muestra “— / Sin datos” y recencia “hace X min” en cada tarjeta.
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
@@ -21,9 +22,8 @@ import CustomText from './CustomText';
 import CuidadorScreen from './CuidadorScreen';
 import theme from './theme';
 
-// --- Health Connect (reemplaza SamsungHealth) ---
+// Health Connect (lectores)
 import {
-  quickSetup,
   readTodaySteps,
   readLatestHeartRate,
   readLatestSpO2,
@@ -89,7 +89,7 @@ function secondsUntilNextFromStart(startHHMM, intervalHours) {
 
   if (now.getTime() <= startToday.getTime()) {
     return Math.ceil((startToday.getTime() - now.getTime()) / 1000);
-  }
+    }
   const passed = now.getTime() - startToday.getTime();
   const k = Math.ceil(passed / stepMs);
   const next = startToday.getTime() + k * stepMs;
@@ -118,6 +118,22 @@ function formatEta(ms) {
   return `en ${s}s`;
 }
 
+// ---------- Recencia ----------
+function timeAgo(iso) {
+  if (!iso) return null;
+  const now = Date.now();
+  const t = new Date(iso).getTime();
+  if (!t) return null;
+  const diff = Math.max(0, Math.floor((now - t) / 1000));
+  if (diff < 60) return `hace ${diff}s`;
+  const m = Math.floor(diff / 60);
+  if (m < 60) return `hace ${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.floor(h / 24);
+  return `hace ${d} d`;
+}
+
 export default function SaludScreen() {
   const navigation = useNavigation();
   const [patient, setPatient] = useState({ id: null });
@@ -125,9 +141,17 @@ export default function SaludScreen() {
   const [mood, setMood] = useState(null);
   const [power, setPower] = useState({ score: 0, color: theme.colors.primary });
 
+  // Timestamps/orígenes para recencia
+  const [meta, setMeta] = useState({
+    hrAt: null, hrOrigin: null,
+    stepsAt: null, stepsSource: null,
+    spo2At: null, spo2Origin: null,
+    sleepEnd: null
+  });
+
   // Próximo ítem de Farmacia
-  const [nextInfo, setNextInfo] = useState(null); // { item, nextAt: Date, isPaused: boolean }
-  const [nowTick, setNowTick] = useState(Date.now()); // para refrescar cuenta regresiva
+  const [nextInfo, setNextInfo] = useState(null);
+  const [nowTick, setNowTick] = useState(Date.now());
   const etaTimerRef = useRef(null);
   const intervalRef = useRef(null);
 
@@ -197,10 +221,8 @@ export default function SaludScreen() {
     }
   }, []);
 
-  // Intento de setup HC una vez (si falta permiso abrirá el sheet)
-  useEffect(() => {
-    quickSetup().catch(() => {});
-  }, []);
+  // ❌ Eliminado quickSetup() silencioso para no duplicar flujo de permisos
+  // useEffect(() => { quickSetup().catch(() => {}); }, []);
 
   // Fetch métricas cada 15s (Health Connect)
   useEffect(() => {
@@ -208,9 +230,9 @@ export default function SaludScreen() {
       try {
         const [hr, st, sp, sl] = await Promise.all([
           readLatestHeartRate(),   // { bpm, at, origin }
-          readTodaySteps(),        // { steps, ... }
-          readLatestSpO2(),        // { spo2, ... }
-          readSleepLast24h(),      // { hours, ... }
+          readTodaySteps(),        // { steps, asOf, source, origins }
+          readLatestSpO2(),        // { spo2, at, origin }
+          readSleepLast24h(),      // { hours, rangeEnd }
         ]);
 
         const newMetrics = {
@@ -220,10 +242,21 @@ export default function SaludScreen() {
           spo2: sp?.spo2 ?? null,
         };
         setMetrics(newMetrics);
+
+        setMeta({
+          hrAt: hr?.at || null,
+          hrOrigin: hr?.origin || null,
+          stepsAt: st?.asOf || null,
+          stepsSource: st?.source || null,
+          spo2At: sp?.at || null,
+          spo2Origin: sp?.origin || null,
+          sleepEnd: sl?.rangeEnd || null
+        });
+
         const { score, color } = computeVital(newMetrics, mood);
         setPower({ score, color });
       } catch {
-        // métricas se mantienen
+        // métrica previa se mantiene
       }
     }
 
@@ -243,11 +276,46 @@ export default function SaludScreen() {
     setPower({ score, color });
   };
 
+  // Umbrales de “reciente”
+  const FRESH_HR_SPO2_MIN = 15;   // min
+  const FRESH_STEPS_MIN   = 30;   // min
+
+  function recencyBadge(tsIso, type) {
+    if (!tsIso) return <View style={styles.badge}><CustomText style={styles.badgeText}>Sin datos</CustomText></View>;
+    const diffMin = Math.floor((Date.now() - new Date(tsIso).getTime()) / 60000);
+    const isFresh = type === 'steps'
+      ? diffMin <= FRESH_STEPS_MIN
+      : diffMin <= FRESH_HR_SPO2_MIN;
+    return (
+      <CustomText style={[styles.recency, { color: isFresh ? theme.colors.textSecondary : theme.colors.error }]}>
+        {timeAgo(tsIso)}
+      </CustomText>
+    );
+  }
+
   const metricsList = [
-    ['Frecuencia cardíaca', metrics.heart_rate != null ? `${metrics.heart_rate} bpm` : '—'],
-    ['Pasos',               metrics.steps != null ? metrics.steps : '—'],
-    ['Sueño',               metrics.sleep != null ? `${metrics.sleep} h` : '—'],
-    ['SpO₂',                metrics.spo2 != null ? `${metrics.spo2} %` : '—']
+    {
+      label: 'Frecuencia cardíaca',
+      value: metrics.heart_rate != null ? `${metrics.heart_rate} bpm` : '—',
+      meta: recencyBadge(meta.hrAt, 'hr')
+    },
+    {
+      label: 'Pasos',
+      value: metrics.steps != null ? metrics.steps : '—',
+      meta: recencyBadge(meta.stepsAt, 'steps')
+    },
+    {
+      label: 'Sueño',
+      value: metrics.sleep != null ? `${metrics.sleep} h` : '—',
+      meta: metrics.sleep != null
+        ? <CustomText style={styles.recency}>últimas 24 h</CustomText>
+        : <View style={styles.badge}><CustomText style={styles.badgeText}>Sin datos</CustomText></View>
+    },
+    {
+      label: 'SpO₂',
+      value: metrics.spo2 != null ? `${metrics.spo2} %` : '—',
+      meta: recencyBadge(meta.spo2At, 'spo2')
+    }
   ];
 
   // --------- UI Próximo medicamento/suplemento ----------
@@ -310,10 +378,11 @@ export default function SaludScreen() {
       )}
 
       <View style={styles.grid}>
-        {metricsList.map(([label, value]) => (
-          <View style={styles.card} key={label}>
-            <CustomText style={styles.metricLabel}>{label}</CustomText>
-            <CustomText style={styles.metricValue}>{value}</CustomText>
+        {metricsList.map((row) => (
+          <View style={styles.card} key={row.label}>
+            <CustomText style={styles.metricLabel}>{row.label}</CustomText>
+            <CustomText style={styles.metricValue}>{row.value}</CustomText>
+            <View style={{ marginTop: 2 }}>{row.meta}</View>
           </View>
         ))}
       </View>
@@ -348,6 +417,18 @@ const styles = StyleSheet.create({
   },
   metricLabel: { fontSize: theme.fontSizes.sm, color: theme.colors.textSecondary, marginBottom: theme.spacing.xs, fontFamily: theme.typography.body.fontFamily },
   metricValue: { fontSize: theme.fontSizes.md, color: theme.colors.textPrimary, fontWeight: '700', fontFamily: theme.typography.subtitle.fontFamily },
+
+  recency: { fontSize: 12, fontFamily: theme.typography.body.fontFamily },
+  badge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.outline
+  },
+  badgeText: { color: theme.colors.textSecondary, fontSize: 12, fontFamily: theme.typography.body.fontFamily },
 
   nextMedContainer: {
     flexDirection: 'row',
