@@ -1,7 +1,13 @@
 // auth/AuthContext.js
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// ✅ SecureStore opcional (no rompe el bundler si no está instalado)
+let SecureStore = null;
+try {
+  // Si el proyecto tiene expo-secure-store, lo usamos
+  SecureStore = require('expo-secure-store');
+} catch { /* sin dependencia, usamos AsyncStorage como fallback */ }
 
 const AUTH_USER_KEY = '@auth_user_v1';
 const AUTH_TOKEN_KEY = 'auth_google_id_token_v1';
@@ -49,7 +55,16 @@ export function AuthProvider({ children }) {
     };
     try {
       await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(u));
-      if (idToken) await SecureStore.setItemAsync(AUTH_TOKEN_KEY, idToken);
+
+      // Guarda el token de forma segura si está SecureStore; si no, en AsyncStorage (MVP)
+      if (idToken) {
+        if (SecureStore?.setItemAsync) {
+          await SecureStore.setItemAsync(AUTH_TOKEN_KEY, idToken);
+        } else {
+          await AsyncStorage.setItem(AUTH_TOKEN_KEY, idToken);
+        }
+      }
+
       // Inicializa perfil si no existe
       const rawProfile = await AsyncStorage.getItem(PROFILE_KEY);
       if (!rawProfile) {
@@ -68,7 +83,11 @@ export function AuthProvider({ children }) {
   const signOut = useCallback(async () => {
     try {
       await AsyncStorage.removeItem(AUTH_USER_KEY);
-      await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY).catch(() => {});
+      if (SecureStore?.deleteItemAsync) {
+        await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
+      } else {
+        await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+      }
       // No borramos PROFILE_KEY; el usuario puede volver a iniciar sesión y mantener datos locales.
     } catch {}
     setUser(null);
