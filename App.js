@@ -1,162 +1,402 @@
-// App.js — Tabs simples + modal emergente de permisos que SÍ actúa
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Modal, AppState, Platform } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+// App.js
+import React, { useEffect, useState } from 'react';
+import { View, TouchableOpacity, LogBox, Platform, Modal, Text, Pressable } from 'react-native';
+import {
+  useFonts,
+  Montserrat_400Regular,
+  Montserrat_500Medium,
+  Montserrat_700Bold
+} from '@expo-google-fonts/montserrat';
+import * as SplashScreen from 'expo-splash-screen';
+import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
+import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
+import CustomText from './CustomText';
+import theme from './theme';
 
-import SaludScreen from './SaludScreen';
-import CuidadoPersonalScreen from './CuidadoPersonalScreen';
+// 👇 CORREGIDO: si tu health.js está en la raíz
+import { hcGetStatusDebug, quickSetup, hcOpenSettings } from './health';
 
-import {
-  hcGetStatusDebug,
-  hasAllPermissions,
-  quickSetup,
-  hcOpenSettings,
-} from './health';
+// (opcional) crash logger temprano; no debe romper el arranque
+try {
+  const crash = require('./crash');
+  crash?.install?.();
+} catch {}
 
-const Tab = createBottomTabNavigator();
+// Ignorar warnings conocidos
+LogBox.ignoreLogs([
+  '[expo-av]: Expo AV has been deprecated',
+  '`expo-notifications` functionality is not fully supported in Expo Go',
+  'Cannot read property \'startSpeech\' of null'
+]);
 
-export default function App() {
-  return (
-    <NavigationContainer>
-      <Tab.Navigator
-        screenOptions={({ route }) => ({
-          headerShown: true,
-          tabBarIcon: ({ color, size }) => {
-            const map = { Salud: 'heart-outline', Cuidado: 'people-outline' };
-            return <Ionicons name={map[route.name] || 'ellipse-outline'} size={size} color={color} />;
-          },
-        })}
-      >
-        <Tab.Screen name="Salud" component={SaludScreen} />
-        <Tab.Screen name="Cuidado" component={CuidadoPersonalScreen} />
-      </Tab.Navigator>
+// Control manual del splash
+try {
+  SplashScreen.preventAutoHideAsync();
+} catch {}
 
-      <HealthPermissionModal />
-    </NavigationContainer>
-  );
+const SETTINGS_KEY = '@latido_settings';
+// Streak keys
+const STREAK_CNT  = '@streak_count';
+const STREAK_LAST = '@streak_last_open';
+const STREAK_BEST = '@streak_best';
+
+// Wizard (primer uso) key
+const HC_WIZ_DONE = '@hc_wizard_done_v2';
+
+function dateOnlyStr(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function daysBetweenUTC(aStr, bStr) {
+  const [ay, am, ad] = aStr.split('-').map(n => parseInt(n, 10));
+  const [by, bm, bd] = bStr.split('-').map(n => parseInt(n, 10));
+  const a = Date.UTC(ay, am - 1, ad);
+  const b = Date.UTC(by, bm - 1, bd);
+  return Math.round((b - a) / (24 * 3600 * 1000));
 }
 
-function HealthPermissionModal() {
-  const [visible, setVisible] = useState(false);
-  const [available, setAvailable] = useState(false);
-  const [granted, setGranted] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [statusText, setStatusText] = useState('…');
-  const autoTried = useRef(false);
+const Tab = createBottomTabNavigator();
+const Stack = createStackNavigator();
 
-  const check = useCallback(async () => {
-    try {
-      const st = await hcGetStatusDebug();
-      const okAvail = st?.label === 'SDK_AVAILABLE';
-      setAvailable(okAvail);
-      setStatusText(st?.label || '—');
-      const okPerms = okAvail ? await hasAllPermissions() : false;
-      setGranted(!!okPerms);
-      setVisible(Platform.OS === 'android' && (!okAvail || !okPerms));
+/** Carga diferida de screens para que libs nativas no se ejecuten en el arranque */
+function lazyScreen(loader) {
+  return function Lazy(props) {
+    const [C, setC] = React.useState(null);
+    useEffect(() => {
+      let alive = true;
+      loader()
+        .then(m => { if (alive) setC(() => m.default || m); })
+        .catch(e => console.debug('Lazy load error:', e?.message || e));
+      return () => { alive = false; };
+    }, []);
+    if (!C) return null;
+    return <C {...props} />;
+  };
+}
 
-      if (okAvail && !okPerms && !autoTried.current) {
-        autoTried.current = true;
-        setBusy(true);
-        try {
-          await quickSetup();
-          const ok2 = await hasAllPermissions();
-          setGranted(!!ok2);
-          setVisible(!(ok2 === true));
-        } finally {
-          setBusy(false);
-        }
+const SaludScreenLazy           = lazyScreen(() => import('./SaludScreen'));
+const LatidoScreenLazy          = lazyScreen(() => import('./LatidoScreen'));
+const HistoryScreenLazy         = lazyScreen(() => import('./HistoryScreen'));
+const CuidadoPersonalScreenLazy = lazyScreen(() => import('./CuidadoPersonalScreen'));
+const ProfileScreenLazy         = lazyScreen(() => import('./ProfileScreen'));
+const StreakScreenLazy          = lazyScreen(() => import('./StreakScreen'));
+const SettingsScreenLazy        = lazyScreen(() => import('./SettingsScreen'));
+const MedicationsScreenLazy     = lazyScreen(() => import('./MedicationsScreen'));
+
+import { useEmergency } from './useEmergency';
+
+/** Inicialización diferida de notificaciones (después del primer render estable) */
+async function setupNotificationsDeferred() {
+  try {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false
+      })
+    });
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('alarms', {
+        name: 'Alarmas',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C'
+      });
+    } else {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        console.debug('Notifs: permiso iOS no concedido');
       }
-    } catch {
-      setAvailable(false);
-      setGranted(false);
-      setVisible(Platform.OS === 'android');
-      setStatusText('STATUS_ERROR');
+    }
+  } catch (e) {
+    console.debug('setupNotifications error:', e?.message || e);
+  }
+}
+
+function MainTabs() {
+  const navigation = useNavigation();
+  const [profile, setProfile] = React.useState({ emergencyContact: null, emergencyName: '' });
+  const [streakCount, setStreakCount] = React.useState(0);
+  const [settings, setSettings] = React.useState({ emergencyTestMode: false });
+
+  useEffect(() => {
+    AsyncStorage.getItem('@latido_profile')
+      .then(raw => { if (raw) setProfile(JSON.parse(raw)); })
+      .catch(() => {});
+  }, []);
+
+  const loadStreak = React.useCallback(async () => {
+    try {
+      const cnt = await AsyncStorage.getItem(STREAK_CNT);
+      setStreakCount(parseInt(cnt || '0', 10) || 0);
+    } catch (e) { console.debug('Load streak badge error:', e?.message || e); }
+  }, []);
+
+  const loadSettings = React.useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(SETTINGS_KEY);
+      const cfg = raw ? JSON.parse(raw) : {};
+      setSettings({ emergencyTestMode: !!cfg.emergencyTestMode });
+    } catch (e) {
+      console.debug('Load settings error:', e?.message || e);
+      setSettings({ emergencyTestMode: false });
     }
   }, []);
 
   useEffect(() => {
-    check();
-    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') check(); });
-    return () => sub.remove();
-  }, [check]);
+    loadStreak();
+    loadSettings();
+    const unsub = navigation.addListener?.('focus', () => {
+      loadStreak();
+      loadSettings();
+    });
+    return unsub;
+  }, [navigation, loadStreak, loadSettings]);
 
-  // abre automáticamente al montar si falta algo (por si el autoTried tarda)
-  useEffect(() => {
-    const t = setTimeout(() => { check(); }, 300);
-    return () => clearTimeout(t);
-  }, [check]);
-
-  if (!visible) return null;
+  const { triggerEmergency } = useEmergency({
+    phoneNumber: profile.emergencyContact,
+    whatsappNumber: profile.emergencyContact,
+    whatsappText: `${profile.emergencyName}, necesito ayuda.`,
+    alertSound: require('./alert.wav'),
+    tickSound: require('./tick.wav'),
+    testMode: settings.emergencyTestMode
+  });
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={() => {}}>
-      <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.45)', justifyContent:'center', alignItems:'center', padding:24 }}>
-        <View style={{ width:'100%', maxWidth:420, backgroundColor:'#fff', borderRadius:16, padding:16 }}>
-          <Text style={{ fontSize:18, fontWeight:'600', marginBottom:8, color:'#111' }}>Permisos de Salud</Text>
-
-          {!available && (
-            <>
-              <Text style={{ color:'#333', marginBottom:8 }}>
-                Health Connect no está disponible ({statusText}). Instálalo/actívalo para continuar.
-              </Text>
-              {busy ? (
-                <Busy label="Abriendo…" />
-              ) : (
-                <>
-                  <BtnPrimary label="Abrir Health Connect" onPress={async () => { setBusy(true); try { await hcOpenSettings(); } finally { setBusy(false); } }} />
-                  <Gap8 />
-                  <BtnOutline label="Revisar de nuevo" onPress={check} />
-                </>
+    <Tab.Navigator
+      screenOptions={({ route, navigation }) => ({
+        headerShown: true,
+        headerTitle: '',
+        headerStyle: { backgroundColor: theme.colors.surface },
+        headerTintColor: theme.colors.textPrimary,
+        headerRight: () => (
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: theme.spacing.md }}>
+            <View style={{ position: 'relative', marginHorizontal: theme.spacing.sm }}>
+              <TouchableOpacity onPress={() => navigation.navigate('Streak')}>
+                <Ionicons name="flame" size={24} color={theme.colors.accent} />
+              </TouchableOpacity>
+              {streakCount > 0 && (
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -10,
+                    minWidth: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    backgroundColor: theme.colors.primary,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingHorizontal: 4
+                  }}
+                >
+                  <CustomText style={{ color: '#fff', fontSize: 10, fontFamily: theme.typography.body.fontFamily }}>
+                    {streakCount}
+                  </CustomText>
+                </View>
               )}
-            </>
-          )}
+            </View>
 
-          {available && !granted && (
-            <>
-              <Text style={{ color:'#333', marginBottom:8 }}>
-                Otorga acceso de lectura a Pasos y Frecuencia Cardíaca.
-              </Text>
-              {busy ? (
-                <Busy label="Solicitando permisos…" />
-              ) : (
-                <>
-                  <BtnPrimary label="Solicitar permisos ahora" onPress={async () => { setBusy(true); try { await quickSetup(); await check(); } finally { setBusy(false); } }} />
-                  <Gap8 />
-                  <BtnOutline label="Abrir Health Connect" onPress={async () => { setBusy(true); try { await hcOpenSettings(); } finally { setBusy(false); } }} />
-                  <Gap8 />
-                  <BtnOutline label="Revisar de nuevo" onPress={check} />
-                </>
-              )}
-            </>
-          )}
+            <TouchableOpacity onPress={triggerEmergency} style={{ marginHorizontal: theme.spacing.sm }}>
+              <Ionicons name="warning" size={24} color={theme.colors.error} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={{ marginHorizontal: theme.spacing.sm }}>
+              <Ionicons name="person-circle" size={24} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('Settings')} style={{ marginHorizontal: theme.spacing.sm }}>
+              <Ionicons name="settings" size={24} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        ),
+        tabBarIcon: ({ color, size }) => {
+          let iconName;
+          switch (route.name) {
+            case 'Salud':     iconName = 'heart-circle';    break;
+            case 'Examen':    iconName = 'heart-outline';   break;
+            case 'Historial': iconName = 'time-outline';    break;
+            case 'Cuidado':   iconName = 'bandage-outline'; break;
+            default:          iconName = 'ellipse';         break;
+          }
+          return <Ionicons name={iconName} size={size} color={color} />;
+        },
+        tabBarActiveTintColor: theme.colors.primary,
+        tabBarInactiveTintColor: theme.colors.textSecondary,
+        tabBarLabelStyle: {
+          fontFamily: theme.typography.body.fontFamily,
+          fontSize: theme.typography.body.fontSize,
+          marginBottom: 4,
+        },
+        tabBarStyle: { backgroundColor: theme.colors.surface },
+      })}
+      lazy
+    >
+      <Tab.Screen name="Salud"     component={SaludScreenLazy}           options={{ tabBarLabel: 'Salud' }} />
+      <Tab.Screen name="Examen"    component={LatidoScreenLazy}          options={{ tabBarLabel: 'Examen' }} />
+      <Tab.Screen name="Historial" component={HistoryScreenLazy}         options={{ tabBarLabel: 'Historial' }} />
+      <Tab.Screen name="Cuidado"   component={CuidadoPersonalScreenLazy} options={{ tabBarLabel: 'Cuidado' }} />
+    </Tab.Navigator>
+  );
+}
+
+// ---- Wizard modal de permisos (primer uso) ----
+function HealthWizardModal({ visible, onClose, onGranted }) {
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
+      <View style={{
+        flex: 1, alignItems: 'center', justifyContent: 'center',
+        backgroundColor: 'rgba(0,0,0,0.35)'
+      }}>
+        <View style={{
+          width: '86%', borderRadius: 16, padding: 16,
+          backgroundColor: theme.colors.surface, borderColor: theme.colors.outline, borderWidth: 1
+        }}>
+          <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 6, color: theme.colors.textPrimary }}>
+            Permitir Salud
+          </Text>
+          <Text style={{ fontSize: 14, color: theme.colors.textSecondary, marginBottom: 16 }}>
+            Para mostrar tus pasos y frecuencia cardíaca, permite el acceso en Health Connect.
+          </Text>
+
+          <Pressable
+            disabled={busy}
+            onPress={async () => {
+              setBusy(true);
+              try {
+                const ok = await quickSetup();
+                if (ok) {
+                  try { await AsyncStorage.setItem(HC_WIZ_DONE, '1'); } catch {}
+                  onGranted?.();
+                  onClose?.();
+                } else {
+                  await hcOpenSettings();
+                }
+              } catch (e) {
+                try { await hcOpenSettings(); } catch {}
+              } finally {
+                setBusy(false);
+              }
+            }}
+            style={{
+              paddingVertical: 12, borderRadius: 12, alignItems: 'center',
+              backgroundColor: busy ? theme.colors.outline : theme.colors.primary
+            }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '600' }}>
+              {busy ? 'Abriendo…' : 'Otorgar permisos'}
+            </Text>
+          </Pressable>
+
+          <Pressable onPress={onClose} style={{ paddingVertical: 10, alignItems: 'center', marginTop: 6 }}>
+            <Text style={{ color: theme.colors.textSecondary }}>Ahora no</Text>
+          </Pressable>
         </View>
       </View>
     </Modal>
   );
 }
 
-function Busy({ label }) {
+export default function App() {
+  const [fontsLoaded] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_700Bold });
+  const [showWizard, setShowWizard] = useState(false);
+
+  useEffect(() => {
+    if (fontsLoaded) {
+      SplashScreen.hideAsync().catch(() => {});
+      const t = setTimeout(() => { setupNotificationsDeferred(); }, 1200);
+      return () => clearTimeout(t);
+    }
+  }, [fontsLoaded]);
+
+  useEffect(() => {
+    (async () => {
+      const today = dateOnlyStr(new Date());
+      try {
+        const [cr, lr, br] = await Promise.all([
+          AsyncStorage.getItem(STREAK_CNT),
+          AsyncStorage.getItem(STREAK_LAST),
+          AsyncStorage.getItem(STREAK_BEST)
+        ]);
+
+        let cnt  = parseInt(cr || '0', 10) || 0;
+        let best = parseInt(br || '0', 10) || 0;
+        const last = lr || null;
+
+        if (!last) {
+          cnt = 1;
+        } else {
+          const diff = daysBetweenUTC(last, today);
+          if (diff === 1) cnt += 1;
+          else if (diff > 1) cnt = 1;
+        }
+        if (cnt > best) best = cnt;
+
+        await AsyncStorage.multiSet([
+          [STREAK_CNT,  String(cnt)],
+          [STREAK_LAST, today],
+          [STREAK_BEST, String(best)]
+        ]);
+      } catch (e) {
+        console.debug('Streak auto-update error:', e?.message || e);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      if (Platform.OS !== 'android') return;
+      try {
+        const done = await AsyncStorage.getItem(HC_WIZ_DONE);
+        if (done === '1') return;
+        const s = await hcGetStatusDebug();
+        if (s.status === 0 ||
+            s.label === 'PROVIDER_UPDATE_REQUIRED' ||
+            s.label === 'PROVIDER_DISABLED' ||
+            s.label === 'PROVIDER_NOT_INSTALLED') {
+          setShowWizard(true);
+        }
+      } catch {}
+    })();
+  }, []);
+
+  if (!fontsLoaded) return null;
+
+  const navTheme = {
+    ...DefaultTheme,
+    colors: {
+      ...DefaultTheme.colors,
+      background: theme.colors.background,
+      card: theme.colors.surface,
+      text: theme.colors.textPrimary,
+      border: theme.colors.outline
+    }
+  };
+
   return (
-    <View style={{ alignItems:'center', paddingVertical:8 }}>
-      <ActivityIndicator />
-      <Text style={{ marginTop:8, color:'#555' }}>{label}</Text>
-    </View>
-  );
-}
-function Gap8(){ return <View style={{ height:8 }} />; }
-function BtnPrimary({ label, onPress }) {
-  return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.9} style={{ backgroundColor:'#6C63FF', paddingVertical:12, borderRadius:12 }}>
-      <Text style={{ color:'#fff', textAlign:'center', fontWeight:'600' }}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-function BtnOutline({ label, onPress }) {
-  return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.9} style={{ borderWidth:1, borderColor:'#DDD', paddingVertical:12, borderRadius:12 }}>
-      <Text style={{ color:'#111', textAlign:'center' }}>{label}</Text>
-    </TouchableOpacity>
+    <>
+      <NavigationContainer theme={navTheme}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Main"        component={MainTabs} />
+          <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
+          <Stack.Screen name="Streak"      component={StreakScreenLazy} />
+          <Stack.Screen name="Settings"    component={SettingsScreenLazy} />
+          <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
+        </Stack.Navigator>
+      </NavigationContainer>
+
+      <HealthWizardModal
+        visible={showWizard}
+        onClose={() => setShowWizard(false)}
+        onGranted={() => {}}
+      />
+    </>
   );
 }
