@@ -1,6 +1,6 @@
 // App.js
 import React, { useEffect, useState } from 'react';
-import { View, TouchableOpacity, LogBox, Platform, Modal, Text, Pressable } from 'react-native';
+import { View, TouchableOpacity, LogBox, Platform, Modal, Text, Pressable, AppState } from 'react-native';
 import {
   useFonts,
   Montserrat_400Regular,
@@ -17,10 +17,10 @@ import * as Notifications from 'expo-notifications';
 import CustomText from './CustomText';
 import theme from './theme';
 
-// ✅ Importa hasAllPermissions para mostrar el wizard si faltan permisos
+// ✅ Importamos validadores de HC
 import { hcGetStatusDebug, hasAllPermissions, quickSetup, hcOpenSettings } from './health';
 
-// (opcional) crash logger temprano; no debe romper el arranque
+// (opcional) crash logger temprano
 try {
   const crash = require('./crash');
   crash?.install?.();
@@ -34,9 +34,7 @@ LogBox.ignoreLogs([
 ]);
 
 // Control manual del splash
-try {
-  SplashScreen.preventAutoHideAsync();
-} catch {}
+try { SplashScreen.preventAutoHideAsync(); } catch {}
 
 const SETTINGS_KEY = '@latido_settings';
 // Streak keys
@@ -44,7 +42,7 @@ const STREAK_CNT  = '@streak_count';
 const STREAK_LAST = '@streak_last_open';
 const STREAK_BEST = '@streak_best';
 
-// Wizard key (solo informativa; no bloquea si faltan permisos)
+// Flag informativo
 const HC_WIZ_DONE = '@hc_wizard_done_v2';
 
 function dateOnlyStr(d = new Date()) {
@@ -64,7 +62,7 @@ function daysBetweenUTC(aStr, bStr) {
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
-/** Carga diferida de screens para que libs nativas no se ejecuten en el arranque */
+/** Carga diferida de screens */
 function lazyScreen(loader) {
   return function Lazy(props) {
     const [C, setC] = React.useState(null);
@@ -91,7 +89,7 @@ const MedicationsScreenLazy     = lazyScreen(() => import('./MedicationsScreen')
 
 import { useEmergency } from './useEmergency';
 
-/** Inicialización diferida de notificaciones */
+/** Notificaciones diferidas */
 async function setupNotificationsDeferred() {
   try {
     Notifications.setNotificationHandler({
@@ -111,9 +109,7 @@ async function setupNotificationsDeferred() {
       });
     } else {
       const { status } = await Notifications.requestPermissionsAsync();
-      if (status !== 'granted') {
-        console.debug('Notifs: permiso iOS no concedido');
-      }
+      if (status !== 'granted') console.debug('Notifs: permiso iOS no concedido');
     }
   } catch (e) {
     console.debug('setupNotifications error:', e?.message || e);
@@ -251,14 +247,8 @@ function HealthWizardModal({ visible, onClose, onGranted }) {
 
   return (
     <Modal transparent animationType="fade" visible={visible} onRequestClose={onClose}>
-      <View style={{
-        flex: 1, alignItems: 'center', justifyContent: 'center',
-        backgroundColor: 'rgba(0,0,0,0.35)'
-      }}>
-        <View style={{
-          width: '86%', borderRadius: 16, padding: 16,
-          backgroundColor: theme.colors.surface, borderColor: theme.colors.outline, borderWidth: 1
-        }}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' }}>
+        <View style={{ width: '86%', borderRadius: 16, padding: 16, backgroundColor: theme.colors.surface, borderColor: theme.colors.outline, borderWidth: 1 }}>
           <Text style={{ fontSize: 18, fontWeight: '600', marginBottom: 6, color: theme.colors.textPrimary }}>
             Permitir Salud
           </Text>
@@ -272,27 +262,17 @@ function HealthWizardModal({ visible, onClose, onGranted }) {
               setBusy(true);
               try {
                 const ok = await quickSetup();
-                if (ok) {
-                  try { await AsyncStorage.setItem(HC_WIZ_DONE, '1'); } catch {}
-                  onGranted?.();
-                  onClose?.();
-                } else {
-                  await hcOpenSettings();
-                }
+                if (!ok) await hcOpenSettings(); // abre HC si no se pudo solicitar inline
+                // El cierre real se hará al volver (AppState 'active')
               } catch {
                 try { await hcOpenSettings(); } catch {}
               } finally {
                 setBusy(false);
               }
             }}
-            style={{
-              paddingVertical: 12, borderRadius: 12, alignItems: 'center',
-              backgroundColor: busy ? theme.colors.outline : theme.colors.primary
-            }}
+            style={{ paddingVertical: 12, borderRadius: 12, alignItems: 'center', backgroundColor: busy ? theme.colors.outline : theme.colors.primary }}
           >
-            <Text style={{ color: '#fff', fontWeight: '600' }}>
-              {busy ? 'Abriendo…' : 'Otorgar permisos'}
-            </Text>
+            <Text style={{ color: '#fff', fontWeight: '600' }}>{busy ? 'Abriendo…' : 'Otorgar permisos'}</Text>
           </Pressable>
 
           <Pressable onPress={onClose} style={{ paddingVertical: 10, alignItems: 'center', marginTop: 6 }}>
@@ -331,9 +311,8 @@ export default function App() {
         let best = parseInt(br || '0', 10) || 0;
         const last = lr || null;
 
-        if (!last) {
-          cnt = 1;
-        } else {
+        if (!last) cnt = 1;
+        else {
           const diff = daysBetweenUTC(last, today);
           if (diff === 1) cnt += 1;
           else if (diff > 1) cnt = 1;
@@ -351,28 +330,34 @@ export default function App() {
     })();
   }, []);
 
-  // ✅ Unificación de permisos: mostrar wizard si HC no está ok O si faltan permisos.
-  useEffect(() => {
-    (async () => {
-      if (Platform.OS !== 'android') return;
-      try {
-        const s = await hcGetStatusDebug();
-        const sdkOk = s?.label === 'SDK_AVAILABLE' || s?.status === 0;
-        let permsOk = false;
-        if (sdkOk) {
-          try { permsOk = await hasAllPermissions(); }
-          catch { permsOk = false; }
-        }
-        // Si el SDK no está ok o faltan permisos -> mostrar wizard
-        if (!sdkOk || !permsOk) {
-          setShowWizard(true);
-        } else {
-          setShowWizard(false);
-          try { await AsyncStorage.setItem(HC_WIZ_DONE, '1'); } catch {}
-        }
-      } catch { /* silencioso */ }
-    })();
+  // ✅ Función única para revalidar SDK+permisos y cerrar el wizard
+  const recheckPerms = React.useCallback(async () => {
+    if (Platform.OS !== 'android') { setShowWizard(false); return; }
+    try {
+      const s = await hcGetStatusDebug();
+      const sdkOk = s?.label === 'SDK_AVAILABLE' || s?.status === 0;
+      const permsOk = sdkOk ? await hasAllPermissions() : false;
+      if (sdkOk && permsOk) {
+        setShowWizard(false);
+        try { await AsyncStorage.setItem(HC_WIZ_DONE, '1'); } catch {}
+      } else {
+        setShowWizard(true);
+      }
+    } catch {
+      // si falla el check, no forzamos cierre
+    }
   }, []);
+
+  // Check inicial
+  useEffect(() => { recheckPerms(); }, [recheckPerms]);
+
+  // ✅ Re-chequeo automático al volver de Health Connect (foreground)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') recheckPerms();
+    });
+    return () => sub.remove();
+  }, [recheckPerms]);
 
   if (!fontsLoaded) return null;
 
@@ -402,7 +387,7 @@ export default function App() {
       <HealthWizardModal
         visible={showWizard}
         onClose={() => setShowWizard(false)}
-        onGranted={() => setShowWizard(false)}
+        onGranted={recheckPerms}
       />
     </>
   );
