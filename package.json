@@ -25,7 +25,7 @@
     "expo-splash-screen": "~0.30.10",
     "expo-linear-gradient": "~14.1.5",
 
-    "expo-auth-session": "~5.5.3",
+    "expo-auth-session": "~5.5.2",
     "expo-web-browser": "~13.0.3",
 
     "@expo/vector-icons": "^14.1.0",
