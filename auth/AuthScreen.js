@@ -1,21 +1,18 @@
 // auth/AuthScreen.js
 import React, { useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, Platform, Image } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
+import { View, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import * as Google from 'expo-auth-session/providers/google';
 import { makeRedirectUri } from 'expo-auth-session';
 import CustomText from '../CustomText';
 import theme from '../theme';
 import { useAuth } from './AuthContext';
 
-WebBrowser.maybeCompleteAuthSession();
-
 function parseJwt(idToken) {
   try {
     const base64Url = idToken.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
     const jsonPayload = decodeURIComponent(
-      atob(base64)
+      (typeof atob === 'function' ? atob(base64) : Buffer.from(base64, 'base64').toString('binary'))
         .split('')
         .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
         .join('')
@@ -26,16 +23,10 @@ function parseJwt(idToken) {
   }
 }
 
-// Shim atob for RN
-const atob = (input) => {
-  if (typeof global.atob === 'function') return global.atob(input);
-  return Buffer.from(input, 'base64').toString('binary');
-};
-
 export default function AuthScreen() {
   const { signInWithGoogleResult } = useAuth();
 
-  const redirectUri = makeRedirectUri({ scheme: 'latido' }); // Asegúrate de tener "scheme":"latido" en app.json
+  const redirectUri = makeRedirectUri({ scheme: 'latido' });
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
@@ -61,11 +52,7 @@ export default function AuthScreen() {
       <CustomText style={styles.title}>Bienvenido a Latido</CustomText>
       <CustomText style={styles.subtitle}>Inicia sesión para continuar</CustomText>
 
-      <TouchableOpacity
-        disabled={!request}
-        onPress={() => promptAsync()}
-        style={styles.googleBtn}
-      >
+      <TouchableOpacity disabled={!request} onPress={() => promptAsync()} style={styles.googleBtn}>
         <CustomText style={styles.googleText}>Continuar con Google</CustomText>
       </TouchableOpacity>
 
