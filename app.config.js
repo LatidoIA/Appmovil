@@ -1,4 +1,3 @@
-// app.config.js
 const {
   withProjectBuildGradle,
   withAndroidManifest,
@@ -35,10 +34,7 @@ const withFixAppComponentFactory = (config) =>
     const app = manifest.application?.[0];
     if (app) {
       app.$ = app.$ || {};
-      // establece el NUEVO valor requerido por el merger
       app.$['android:appComponentFactory'] = 'androidx.core.app.CoreComponentFactory';
-
-      // y declara que lo reemplaza
       const curr = app.$['tools:replace'] || '';
       if (!curr.includes('android:appComponentFactory')) {
         app.$['tools:replace'] = curr
@@ -57,9 +53,11 @@ module.exports = () => ({
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
 
+    /*** 👇 requerido por expo-auth-session para el redirect ***/
+    scheme: 'latido',
+
     android: {
       package: 'com.latido.app',
-      // 👇 Añadimos permisos de Health Connect (Android 14+)
       permissions: [
         'android.permission.BLUETOOTH',
         'android.permission.BLUETOOTH_ADMIN',
