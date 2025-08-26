@@ -5,11 +5,21 @@
       "env": {
         "NODE_ENV": "production",
         "EXPO_NO_TELEMETRY": "1",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "XXXX-your-android-client.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "YYYY-your-web-client.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "107727896179-l6ggvj14sf7mvs24mqbrom94lu367ib2.apps.googleusercontent.com"
       },
       "android": {
         "buildType": "apk",
+        "credentialsSource": "local"
+      }
+    },
+    "store": {
+      "env": {
+        "NODE_ENV": "production",
+        "EXPO_NO_TELEMETRY": "1",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "107727896179-l6ggvj14sf7mvs24mqbrom94lu367ib2.apps.googleusercontent.com"
+      },
+      "android": {
+        "buildType": "app-bundle",
         "credentialsSource": "local"
       }
     }
