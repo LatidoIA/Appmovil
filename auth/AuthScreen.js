@@ -6,11 +6,13 @@ import CustomText from '../CustomText';
 import theme from '../theme';
 import { useAuth } from './AuthContext';
 
-function parseJwt(idToken) {
+function decodeJwt(idToken) {
   try {
     const base64Url = idToken.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const bin = typeof atob === 'function' ? atob(base64) : Buffer.from(base64, 'base64').toString('binary');
+    const bin = typeof atob === 'function'
+      ? atob(base64)
+      : Buffer.from(base64, 'base64').toString('binary');
     const json = decodeURIComponent(bin.split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
     return JSON.parse(json);
   } catch { return null; }
@@ -19,10 +21,10 @@ function parseJwt(idToken) {
 export default function AuthScreen() {
   const { signInWithGoogleResult } = useAuth();
 
-  // ✅ Solo Android client ID. Sin redirectUri ni webClientId.
+  // ✅ Solo Android client (usa Google Play Services). No importamos expo-web-browser.
   const [request, response, promptAsync] = Google.useAuthRequest({
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-    scopes: ['profile', 'email'],
+    scopes: ['profile', 'email', 'openid'],
     usePKCE: true,
   });
 
@@ -30,7 +32,7 @@ export default function AuthScreen() {
     (async () => {
       if (response?.type === 'success') {
         const idToken = response.authentication?.idToken;
-        const info = parseJwt(idToken) || {};
+        const info = decodeJwt(idToken) || {};
         await signInWithGoogleResult({ idToken, info });
       }
     })();
