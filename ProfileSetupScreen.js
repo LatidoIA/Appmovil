@@ -1,6 +1,6 @@
 // ProfileSetupScreen.js
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, TextInput, TouchableOpacity, Platform, Alert, ScrollView } from 'react-native';
+import { View, ScrollView, StyleSheet, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomText from './CustomText';
 import CustomButton from './CustomButton';
@@ -10,103 +10,159 @@ import { useAuth } from './auth/AuthContext';
 const PROFILE_KEY = '@latido_profile';
 
 export default function ProfileSetupScreen({ navigation }) {
-  const { markProfileCompleted } = useAuth();
+  const { user, refreshProfileStatus } = useAuth();
   const [form, setForm] = useState({
     name: '',
     email: '',
-    gender: '',
-    birthdate: '',
     heightCm: '',
     weightKg: '',
-    conditions: '',
+    condition: '',
+    emergencyName: '',
+    emergencyContact: '',
   });
-  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(PROFILE_KEY);
-        const base = raw ? JSON.parse(raw) : {};
-        setForm({
-          name: base.name || '',
-          email: base.email || '',
-          gender: base.gender || '',
-          birthdate: base.birthdate || '',
-          heightCm: base.heightCm ? String(base.heightCm) : '',
-          weightKg: base.weightKg ? String(base.weightKg) : '',
-          conditions: Array.isArray(base.conditions) ? base.conditions.join(', ') : (base.conditions || ''),
-        });
+        const prev = raw ? JSON.parse(raw) : {};
+        setForm(f => ({
+          ...f,
+          ...prev,
+          name: prev?.name || user?.name || '',
+          email: prev?.email || user?.email || '',
+        }));
       } catch {}
     })();
-  }, []);
+  }, [user]);
+
+  const onChange = (k, v) => setForm(s => ({ ...s, [k]: v }));
 
   const save = async () => {
-    setLoading(true);
+    if (!form.name || !form.email) {
+      Alert.alert('Faltan datos', 'Completa al menos nombre y correo.');
+      return;
+    }
+    setSaving(true);
     try {
-      const currentRaw = await AsyncStorage.getItem(PROFILE_KEY);
-      const current = currentRaw ? JSON.parse(currentRaw) : {};
-      const next = {
-        ...current,
-        name: form.name?.trim(),
-        email: form.email?.trim(),
-        gender: form.gender?.trim(),
-        birthdate: form.birthdate?.trim(),
-        heightCm: form.heightCm ? parseInt(form.heightCm, 10) : null,
-        weightKg: form.weightKg ? parseFloat(form.weightKg) : null,
-        conditions: form.conditions ? form.conditions.split(',').map(s => s.trim()).filter(Boolean) : [],
+      const raw = await AsyncStorage.getItem(PROFILE_KEY);
+      const prev = raw ? JSON.parse(raw) : {};
+      const payload = {
+        ...prev,
+        ...form,
+        profileCompleted: true,
       };
-      await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(next));
-      await markProfileCompleted();
-      Alert.alert('Listo', 'Perfil guardado');
+      await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(payload));
+      await refreshProfileStatus();
       navigation.replace('Main');
     } catch (e) {
-      Alert.alert('Error', e?.message || 'No se pudo guardar');
+      Alert.alert('Error', 'No se pudo guardar el perfil.');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container} style={{ backgroundColor: theme.colors.background }}>
-      <CustomText style={styles.title}>Tu perfil</CustomText>
-      <CustomText style={styles.caption}>Completa estos datos para personalizar tu experiencia.</CustomText>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex:1 }}>
+      <ScrollView contentContainerStyle={styles.container} style={{ backgroundColor: theme.colors.background }}>
+        <CustomText style={styles.title}>Configura tu perfil</CustomText>
 
-      {[
-        { key:'name', label:'Nombre' },
-        { key:'email', label:'Email', keyboardType:'email-address' },
-        { key:'gender', label:'Sexo (M/F/otro)' },
-        { key:'birthdate', label:'Fecha de nacimiento (YYYY-MM-DD)' },
-        { key:'heightCm', label:'Estatura (cm)', keyboardType:'numeric' },
-        { key:'weightKg', label:'Peso (kg)', keyboardType:'numeric' },
-        { key:'conditions', label:'Condiciones (coma separadas)' },
-      ].map(f => (
-        <View key={f.key} style={styles.inputWrap}>
-          <CustomText style={styles.label}>{f.label}</CustomText>
+        <View style={styles.card}>
+          <CustomText style={styles.label}>Nombre</CustomText>
           <TextInput
             style={styles.input}
-            value={form[f.key]}
-            onChangeText={t => setForm(s => ({ ...s, [f.key]: t }))}
-            placeholder=""
+            value={form.name}
+            onChangeText={t => onChange('name', t)}
+            placeholder="Tu nombre"
             placeholderTextColor={theme.colors.textSecondary}
-            keyboardType={f.keyboardType}
+          />
+
+          <CustomText style={styles.label}>Correo</CustomText>
+          <TextInput
+            style={styles.input}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            value={form.email}
+            onChangeText={t => onChange('email', t)}
+            placeholder="tucorreo@dominio.com"
+            placeholderTextColor={theme.colors.textSecondary}
+          />
+
+          <CustomText style={styles.label}>Altura (cm)</CustomText>
+          <TextInput
+            style={styles.input}
+            keyboardType="numeric"
+            value={String(form.heightCm || '')}
+            onChangeText={t => onChange('heightCm', t.replace(/[^0-9]/g, ''))}
+            placeholder="170"
+            placeholderTextColor={theme.colors.textSecondary}
+          />
+
+          <CustomText style={styles.label}>Peso (kg)</CustomText>
+          <TextInput
+            style={styles.input}
+            keyboardType="numeric"
+            value={String(form.weightKg || '')}
+            onChangeText={t => onChange('weightKg', t.replace(/[^0-9.]/g, ''))}
+            placeholder="70"
+            placeholderTextColor={theme.colors.textSecondary}
+          />
+
+          <CustomText style={styles.label}>Condición/enfermedad relevante</CustomText>
+          <TextInput
+            style={styles.input}
+            value={form.condition}
+            onChangeText={t => onChange('condition', t)}
+            placeholder="Diabetes, hipertensión, etc."
+            placeholderTextColor={theme.colors.textSecondary}
+          />
+
+          <CustomText style={styles.label}>Contacto de emergencia (nombre)</CustomText>
+          <TextInput
+            style={styles.input}
+            value={form.emergencyName}
+            onChangeText={t => onChange('emergencyName', t)}
+            placeholder="Nombre de contacto"
+            placeholderTextColor={theme.colors.textSecondary}
+          />
+
+          <CustomText style={styles.label}>Contacto de emergencia (teléfono/WhatsApp)</CustomText>
+          <TextInput
+            style={styles.input}
+            value={form.emergencyContact}
+            onChangeText={t => onChange('emergencyContact', t)}
+            keyboardType="phone-pad"
+            placeholder="+56 9 1234 5678"
+            placeholderTextColor={theme.colors.textSecondary}
           />
         </View>
-      ))}
 
-      <CustomButton title={loading ? 'Guardando…' : 'Guardar y continuar'} onPress={save} variant="primary" />
-    </ScrollView>
+        <CustomButton
+          title={saving ? 'Guardando…' : 'Guardar y continuar'}
+          onPress={save}
+          variant="primary"
+          disabled={saving}
+          style={{ alignSelf:'center', marginTop: theme.spacing.sm, paddingHorizontal: 24 }}
+        />
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: theme.spacing.md },
-  title: { fontSize: 20, color: theme.colors.textPrimary, marginBottom: 4, fontFamily: theme.typography.heading.fontFamily },
-  caption: { color: theme.colors.textSecondary, marginBottom: theme.spacing.md, fontFamily: theme.typography.body.fontFamily },
-  inputWrap: { marginBottom: theme.spacing.sm },
-  label: { color: theme.colors.textSecondary, marginBottom: 6, fontFamily: theme.typography.body.fontFamily },
+  container: { padding: theme.spacing.sm },
+  title: { fontSize: 20, color: theme.colors.textPrimary, marginBottom: theme.spacing.sm, fontFamily: theme.typography.heading.fontFamily, textAlign:'center' },
+  card: {
+    backgroundColor: theme.colors.surface, borderRadius: theme.shape.borderRadius, padding: theme.spacing.sm,
+    ...Platform.select({
+      ios: { shadowColor:'#000', shadowOffset:{width:0,height:1}, shadowOpacity:0.1, shadowRadius:2 },
+      android: { elevation:2 },
+    }),
+  },
+  label: { color: theme.colors.textSecondary, marginTop: theme.spacing.xs, marginBottom: 4, fontFamily: theme.typography.body.fontFamily },
   input: {
-    borderWidth: 1, borderColor: theme.colors.outline, borderRadius: theme.shape.borderRadius,
-    padding: theme.spacing.sm, color: theme.colors.textPrimary, backgroundColor: theme.colors.surface,
-    ...Platform.select({ android: { paddingVertical: 10 } }),
+    borderWidth:1, borderColor: theme.colors.outline, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+    color: theme.colors.textPrimary, fontFamily: theme.typography.body.fontFamily,
   },
 });
