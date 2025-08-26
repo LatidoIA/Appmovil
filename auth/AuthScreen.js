@@ -2,7 +2,6 @@
 import React, { useEffect } from 'react';
 import { View, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import * as Google from 'expo-auth-session/providers/google';
-import { makeRedirectUri } from 'expo-auth-session';
 import CustomText from '../CustomText';
 import theme from '../theme';
 import { useAuth } from './AuthContext';
@@ -11,28 +10,19 @@ function parseJwt(idToken) {
   try {
     const base64Url = idToken.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      (typeof atob === 'function' ? atob(base64) : Buffer.from(base64, 'base64').toString('binary'))
-        .split('')
-        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-    return JSON.parse(jsonPayload);
-  } catch {
-    return null;
-  }
+    const bin = typeof atob === 'function' ? atob(base64) : Buffer.from(base64, 'base64').toString('binary');
+    const json = decodeURIComponent(bin.split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+    return JSON.parse(json);
+  } catch { return null; }
 }
 
 export default function AuthScreen() {
   const { signInWithGoogleResult } = useAuth();
 
-  const redirectUri = makeRedirectUri({ scheme: 'latido' });
-
+  // ✅ Solo Android client ID. Sin redirectUri ni webClientId.
   const [request, response, promptAsync] = Google.useAuthRequest({
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
     scopes: ['profile', 'email'],
-    redirectUri,
     usePKCE: true,
   });
 
