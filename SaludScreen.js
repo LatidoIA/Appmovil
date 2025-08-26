@@ -2,6 +2,7 @@
 // UI original + Health Connect + auto-refresh 15s.
 // ✅ Se elimina quickSetup() silencioso para evitar doble flujo.
 // ✅ Muestra “— / Sin datos” y recencia “hace X min” en cada tarjeta.
+// ✅ NUEVO: pide permisos nativos de Health Connect UNA sola vez (sin modal propio).
 
 import React, { useEffect, useState, useRef } from 'react';
 import {
@@ -22,16 +23,19 @@ import CustomText from './CustomText';
 import CuidadorScreen from './CuidadorScreen';
 import theme from './theme';
 
-// Health Connect (lectores)
+// Health Connect (lectores + permisos)
 import {
   readTodaySteps,
   readLatestHeartRate,
   readLatestSpO2,
   readSleepLast24h,
+  hasAllPermissions,
+  requestAllPermissions
 } from './health';
 
 const PROFILE_KEY = '@latido_profile';
 const MEDS_KEY = '@latido_meds';
+const HC_PROMPTED_KEY = '@hc_perm_prompted_v1';
 
 // ---------- Helpers Vital ----------
 function computeVital(metrics = {}, mood) {
@@ -43,7 +47,6 @@ function computeVital(metrics = {}, mood) {
   if (mood === '😊') vals.push(100);
   else if (mood === '😐') vals.push(50);
   else if (mood === '😔') vals.push(0);
-
   const avg = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
   const color = avg > 75 ? theme.colors.accent : avg > 50 ? '#FDB827' : theme.colors.error;
   return { score: avg, color };
@@ -86,10 +89,9 @@ function secondsUntilNextFromStart(startHHMM, intervalHours) {
   const { hh, mm } = startHHMM || { hh: now.getHours(), mm: now.getMinutes() };
   const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
   const stepMs = Math.max(1, parseInt(intervalHours, 10)) * 3600 * 1000;
-
   if (now.getTime() <= startToday.getTime()) {
     return Math.ceil((startToday.getTime() - now.getTime()) / 1000);
-    }
+  }
   const passed = now.getTime() - startToday.getTime();
   const k = Math.ceil(passed / stepMs);
   const next = startToday.getTime() + k * stepMs;
@@ -141,7 +143,6 @@ export default function SaludScreen() {
   const [mood, setMood] = useState(null);
   const [power, setPower] = useState({ score: 0, color: theme.colors.primary });
 
-  // Timestamps/orígenes para recencia
   const [meta, setMeta] = useState({
     hrAt: null, hrOrigin: null,
     stepsAt: null, stepsSource: null,
@@ -149,7 +150,6 @@ export default function SaludScreen() {
     sleepEnd: null
   });
 
-  // Próximo ítem de Farmacia
   const [nextInfo, setNextInfo] = useState(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const etaTimerRef = useRef(null);
@@ -162,29 +162,38 @@ export default function SaludScreen() {
       .catch(() => {});
   }, []);
 
+  // 🔐 Pedir permisos nativos de Health Connect SOLO 1 vez
+  useEffect(() => {
+    (async () => {
+      if (Platform.OS !== 'android') return;
+      try {
+        const prompted = await AsyncStorage.getItem(HC_PROMPTED_KEY);
+        const hasAll = await hasAllPermissions();
+        if (!hasAll && !prompted) {
+          const ok = await requestAllPermissions(); // abre el sheet grande de HC
+          await AsyncStorage.setItem(HC_PROMPTED_KEY, ok ? '1' : '0');
+        }
+      } catch {}
+    })();
+  }, []);
+
   // Cargar meds y calcular “próximo”
   const recomputeNext = async () => {
     try {
       const raw = await AsyncStorage.getItem(MEDS_KEY);
       const arr = raw ? JSON.parse(raw) : [];
       if (!arr.length) { setNextInfo(null); return; }
-
       const ensureSchedule = (x) => x.schedule
         ? x
         : { ...x, schedule: { mode: 'hora', time: x.time || defaultTime(), everyHours: null, startTime: null } };
-
       const all = arr.map(ensureSchedule);
-
       const active = all.filter(x => !!x.reminderOn);
       const candidates = active.length ? active : all;
-
       const withNext = candidates
         .map(x => ({ x, nextAt: nextOccurrenceForItem(x) }))
         .filter(y => !!y.nextAt)
         .sort((a, b) => a.nextAt.getTime() - b.nextAt.getTime());
-
       if (!withNext.length) { setNextInfo(null); return; }
-
       const { x: item, nextAt } = withNext[0];
       setNextInfo({ item, nextAt, isPaused: !item.reminderOn });
     } catch {
@@ -221,20 +230,16 @@ export default function SaludScreen() {
     }
   }, []);
 
-  // ❌ Eliminado quickSetup() silencioso para no duplicar flujo de permisos
-  // useEffect(() => { quickSetup().catch(() => {}); }, []);
-
-  // Fetch métricas cada 15s (Health Connect)
+  // Fetch métricas cada 15s
   useEffect(() => {
     async function fetchMetrics() {
       try {
         const [hr, st, sp, sl] = await Promise.all([
-          readLatestHeartRate(),   // { bpm, at, origin }
-          readTodaySteps(),        // { steps, asOf, source, origins }
-          readLatestSpO2(),        // { spo2, at, origin }
-          readSleepLast24h(),      // { hours, rangeEnd }
+          readLatestHeartRate(),
+          readTodaySteps(),
+          readLatestSpO2(),
+          readSleepLast24h(),
         ]);
-
         const newMetrics = {
           heart_rate: hr?.bpm ?? null,
           steps: st?.steps ?? null,
@@ -242,7 +247,6 @@ export default function SaludScreen() {
           spo2: sp?.spo2 ?? null,
         };
         setMetrics(newMetrics);
-
         setMeta({
           hrAt: hr?.at || null,
           hrOrigin: hr?.origin || null,
@@ -252,21 +256,16 @@ export default function SaludScreen() {
           spo2Origin: sp?.origin || null,
           sleepEnd: sl?.rangeEnd || null
         });
-
         const { score, color } = computeVital(newMetrics, mood);
         setPower({ score, color });
       } catch {
-        // métrica previa se mantiene
+        // mantener último estado
       }
     }
-
-    // primera carga + intervalo
     fetchMetrics();
     intervalRef.current && clearInterval(intervalRef.current);
     intervalRef.current = setInterval(fetchMetrics, 15000);
-    return () => {
-      intervalRef.current && clearInterval(intervalRef.current);
-    };
+    return () => { intervalRef.current && clearInterval(intervalRef.current); };
   }, [mood]);
 
   const submitMood = choice => {
@@ -276,9 +275,8 @@ export default function SaludScreen() {
     setPower({ score, color });
   };
 
-  // Umbrales de “reciente”
-  const FRESH_HR_SPO2_MIN = 15;   // min
-  const FRESH_STEPS_MIN   = 30;   // min
+  const FRESH_HR_SPO2_MIN = 15; // min
+  const FRESH_STEPS_MIN   = 30; // min
 
   function recencyBadge(tsIso, type) {
     if (!tsIso) return <View style={styles.badge}><CustomText style={styles.badgeText}>Sin datos</CustomText></View>;
@@ -294,44 +292,19 @@ export default function SaludScreen() {
   }
 
   const metricsList = [
-    {
-      label: 'Frecuencia cardíaca',
-      value: metrics.heart_rate != null ? `${metrics.heart_rate} bpm` : '—',
-      meta: recencyBadge(meta.hrAt, 'hr')
-    },
-    {
-      label: 'Pasos',
-      value: metrics.steps != null ? metrics.steps : '—',
-      meta: recencyBadge(meta.stepsAt, 'steps')
-    },
-    {
-      label: 'Sueño',
-      value: metrics.sleep != null ? `${metrics.sleep} h` : '—',
-      meta: metrics.sleep != null
-        ? <CustomText style={styles.recency}>últimas 24 h</CustomText>
-        : <View style={styles.badge}><CustomText style={styles.badgeText}>Sin datos</CustomText></View>
-    },
-    {
-      label: 'SpO₂',
-      value: metrics.spo2 != null ? `${metrics.spo2} %` : '—',
-      meta: recencyBadge(meta.spo2At, 'spo2')
-    }
+    { label: 'Frecuencia cardíaca', value: metrics.heart_rate != null ? `${metrics.heart_rate} bpm` : '—', meta: recencyBadge(meta.hrAt, 'hr') },
+    { label: 'Pasos',               value: metrics.steps != null ? metrics.steps : '—',                 meta: recencyBadge(meta.stepsAt, 'steps') },
+    { label: 'Sueño',               value: metrics.sleep != null ? `${metrics.sleep} h` : '—',         meta: metrics.sleep != null ? <CustomText style={styles.recency}>últimas 24 h</CustomText> : <View style={styles.badge}><CustomText style={styles.badgeText}>Sin datos</CustomText></View> },
+    { label: 'SpO₂',                value: metrics.spo2 != null ? `${metrics.spo2} %` : '—',           meta: recencyBadge(meta.spo2At, 'spo2') }
   ];
 
-  // --------- UI Próximo medicamento/suplemento ----------
   const renderNextPharma = () => {
     const goFarmacia = () => navigation.navigate('Cuidado', { initialTab: 'Farmacia' });
-
     return (
       <TouchableOpacity style={styles.nextMedContainer} onPress={goFarmacia} activeOpacity={0.8}>
-        <Ionicons
-          name="medkit-outline"
-          size={24}
-          color={theme.colors.textPrimary}
-        />
+        <Ionicons name="medkit-outline" size={24} color={theme.colors.textPrimary} />
         <View style={styles.nextMedInfo}>
           <CustomText style={styles.nextMedLabel}>Próximo medicamento/suplemento</CustomText>
-
           {!nextInfo ? (
             <CustomText style={styles.emptyText}>Sin registro</CustomText>
           ) : (
@@ -339,7 +312,6 @@ export default function SaludScreen() {
               <CustomText style={styles.nextMedText}>
                 {nextInfo.item.name}{nextInfo.item.dose ? ` — ${nextInfo.item.dose}` : ''}
               </CustomText>
-
               <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 }}>
                 <CustomText style={styles.nextMeta}>
                   {nextInfo.item.schedule?.mode === 'hora'
@@ -363,7 +335,6 @@ export default function SaludScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container} style={{ backgroundColor: theme.colors.background }}>
       <LatidoPower score={power.score} color={power.color} />
-
       {!mood && (
         <View style={styles.moodContainer}>
           <CustomText style={styles.moodTitle}>¿Cómo te sientes hoy?</CustomText>
@@ -376,7 +347,6 @@ export default function SaludScreen() {
           </View>
         </View>
       )}
-
       <View style={styles.grid}>
         {metricsList.map((row) => (
           <View style={styles.card} key={row.label}>
@@ -386,10 +356,7 @@ export default function SaludScreen() {
           </View>
         ))}
       </View>
-
       {renderNextPharma()}
-
-      {/* Cuidador: conserva integración existente */}
       <CuidadorScreen onCongratulate={() => Alert.alert('¡Enviado!', 'Felicitación enviada.')} />
     </ScrollView>
   );
