@@ -1,7 +1,8 @@
 // auth/AuthScreen.js
 import React, { useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import * as Google from 'expo-auth-session/providers/google';
+import { Ionicons } from '@expo/vector-icons';
 import CustomText from '../CustomText';
 import theme from '../theme';
 import { useAuth } from './AuthContext';
@@ -13,7 +14,9 @@ function decodeJwt(idToken) {
     const bin = typeof atob === 'function'
       ? atob(base64)
       : Buffer.from(base64, 'base64').toString('binary');
-    const json = decodeURIComponent(bin.split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+    const json = decodeURIComponent(
+      bin.split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+    );
     return JSON.parse(json);
   } catch { return null; }
 }
@@ -21,7 +24,7 @@ function decodeJwt(idToken) {
 export default function AuthScreen() {
   const { signInWithGoogleResult } = useAuth();
 
-  // ✅ Solo Android client (usa Google Play Services). No importamos expo-web-browser.
+  // Solo Android client (Google Play Services). No requiere cliente Web ni redirect.
   const [request, response, promptAsync] = Google.useAuthRequest({
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
     scopes: ['profile', 'email', 'openid'],
@@ -40,7 +43,7 @@ export default function AuthScreen() {
 
   return (
     <View style={styles.container}>
-      <Image source={require('../assets/icon.png')} style={{ width: 84, height: 84, marginBottom: 16 }} />
+      <Ionicons name="heart-circle" size={72} color={theme.colors.accent} style={{ marginBottom: 16 }} />
       <CustomText style={styles.title}>Bienvenido a Latido</CustomText>
       <CustomText style={styles.subtitle}>Inicia sesión para continuar</CustomText>
 
