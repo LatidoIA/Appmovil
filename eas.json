@@ -4,7 +4,9 @@
     "production": {
       "env": {
         "NODE_ENV": "production",
-        "EXPO_NO_TELEMETRY": "1"
+        "EXPO_NO_TELEMETRY": "1",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "XXXX-your-android-client.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "YYYY-your-web-client.apps.googleusercontent.com"
       },
       "android": {
         "buildType": "apk",
