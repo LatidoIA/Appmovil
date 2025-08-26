@@ -3,20 +3,18 @@ import React from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { useAuth } from './AuthContext';
 import AuthScreen from './AuthScreen';
-import theme from '../theme';
 
 export default function AuthGate({ children }) {
-  const { initializing, user } = useAuth();
+  const { loading, isSignedIn } = useAuth();
 
-  if (initializing) {
+  if (loading) {
     return (
-      <View style={{ flex:1, alignItems:'center', justifyContent:'center', backgroundColor: theme.colors.background }}>
-        <ActivityIndicator size="small" color={theme.colors.accent} />
+      <View style={{ flex:1, alignItems:'center', justifyContent:'center' }}>
+        <ActivityIndicator />
       </View>
     );
   }
 
-  if (!user) return <AuthScreen />;
-
+  if (!isSignedIn) return <AuthScreen />;
   return children;
 }
