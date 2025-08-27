@@ -1,72 +1,57 @@
-// auth/AuthScreen.js
 import React, { useEffect } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import { Ionicons } from '@expo/vector-icons';
+
+// Si usas un <Text/> personalizado cámbialo aquí:
 import CustomText from '../CustomText';
 import theme from '../theme';
-import { useAuth } from './AuthContext';
 
-function decodeJwt(idToken) {
-  try {
-    const base64Url = idToken.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const bin = typeof atob === 'function'
-      ? atob(base64)
-      : Buffer.from(base64, 'base64').toString('binary');
-    const json = decodeURIComponent(
-      bin.split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
-    );
-    return JSON.parse(json);
-  } catch { return null; }
-}
+WebBrowser.maybeCompleteAuthSession();
 
-export default function AuthScreen() {
-  const { signInWithGoogleResult } = useAuth();
-
-  // Solo Android client (Google Play Services). No requiere cliente Web ni redirect.
+export default function AuthScreen({ onSignedIn }) {
   const [request, response, promptAsync] = Google.useAuthRequest({
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-    scopes: ['profile', 'email', 'openid'],
-    usePKCE: true,
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+    // Opcional: redirectUri: makeRedirectUri({ scheme: 'latido' }),
+    scopes: ['profile', 'email'],
   });
 
   useEffect(() => {
-    (async () => {
-      if (response?.type === 'success') {
-        const idToken = response.authentication?.idToken;
-        const info = decodeJwt(idToken) || {};
-        await signInWithGoogleResult({ idToken, info });
-      }
-    })();
-  }, [response, signInWithGoogleResult]);
+    if (response?.type === 'success' && response.authentication?.accessToken) {
+      // Aquí puedes llamar tu backend o fetch de Google profile
+      onSignedIn?.(response.authentication);
+    }
+  }, [response, onSignedIn]);
 
   return (
     <View style={styles.container}>
-      <Ionicons name="heart-circle" size={72} color={theme.colors.accent} style={{ marginBottom: 16 }} />
-      <CustomText style={styles.title}>Bienvenido a Latido</CustomText>
-      <CustomText style={styles.subtitle}>Inicia sesión para continuar</CustomText>
-
-      <TouchableOpacity disabled={!request} onPress={() => promptAsync()} style={styles.googleBtn}>
-        <CustomText style={styles.googleText}>Continuar con Google</CustomText>
+      <TouchableOpacity
+        disabled={!request}
+        style={[styles.btn, !request && styles.btnDisabled]}
+        onPress={() => promptAsync()}
+      >
+        <Ionicons name="logo-google" size={20} />
+        <CustomText style={styles.btnText}>Continuar con Google</CustomText>
       </TouchableOpacity>
-
-      <CustomText style={styles.hint}>
-        Al continuar aceptas nuestros Términos y Política de Privacidad.
-      </CustomText>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex:1, alignItems:'center', justifyContent:'center', padding:16, backgroundColor: theme.colors.background },
-  title: { fontSize: 22, color: theme.colors.textPrimary, marginBottom: 4, fontFamily: theme.typography.heading.fontFamily },
-  subtitle: { fontSize: 14, color: theme.colors.textSecondary, marginBottom: 16, fontFamily: theme.typography.body.fontFamily },
-  googleBtn: {
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1, borderColor: theme.colors.outline,
-    paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, width: '80%', alignItems:'center',
+  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  btn: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    elevation: 3,
   },
-  googleText: { color: theme.colors.textPrimary, fontSize: 16, fontFamily: theme.typography.subtitle.fontFamily },
-  hint: { marginTop: 16, color: theme.colors.textSecondary, fontSize: 12, textAlign:'center', width:'80%', fontFamily: theme.typography.body.fontFamily },
+  btnDisabled: { opacity: 0.5 },
+  btnText: { fontSize: 16, color: theme?.colors?.text ?? '#111' }
 });
