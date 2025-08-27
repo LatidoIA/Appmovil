@@ -8,7 +8,7 @@
         "credentialsSource": "local",
         "buildType": "app-bundle"
       }
-      /* Si no usas OTA, NO pongas "channel" aquí */
+      //* Si no usas OTA, NO pongas "channel" aquí */
     }
   }
 }
