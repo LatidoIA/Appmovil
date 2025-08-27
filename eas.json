@@ -1,15 +1,14 @@
 {
   "cli": {
-    "appVersionSource": "remote"
+    "appVersionSource": "local"
   },
   "build": {
     "production": {
       "android": {
-        "withoutCredentials": false
+        "credentialsSource": "local",
+        "buildType": "app-bundle"
       }
+      /* Si no usas OTA, NO pongas "channel" aquí */
     }
-  },
-  "submit": {
-    "production": {}
   }
 }
