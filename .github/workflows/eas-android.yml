@@ -18,10 +18,22 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          # ❌ OJO: sin "cache: npm" porque no hay lockfile en el repo
+
+      - name: Show Node/npm versions
+        run: |
+          node -v
+          npm -v
 
       - name: Install dependencies
-        run: npm ci || npm i --legacy-peer-deps
+        run: |
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+            echo "Lockfile encontrado -> npm ci"
+            npm ci
+          else
+            echo "Sin lockfile -> npm i (fallback)"
+            npm i --no-audit --no-fund --legacy-peer-deps
+          fi
 
       - name: EAS CLI version
         run: npx --yes eas-cli@latest --version
@@ -51,5 +63,4 @@ jobs:
           EAS_NON_INTERACTIVE: "1"
           EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
           EAS_ACCESS_TOKEN: ${{ secrets.EAS_TOKEN }}
-          EXPO_DEBUG: "1"   # opcional: logs más detallados
         run: npx --yes eas-cli@latest build --platform android --profile production --non-interactive
