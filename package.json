@@ -1,6 +1,7 @@
 {
-  "license": "0BSD",
+  "private": true,
   "main": "index.js",
+  "license": "0BSD",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
@@ -10,8 +11,8 @@
   "dependencies": {
     "expo": "~53.0.20",
     "expo-status-bar": "~2.2.3",
-    "react": "19.0.0",
-    "react-native": "0.79.5",
+    "react": "18.2.0",
+    "react-native": "0.76.6",
 
     "expo-intent-launcher": "~12.1.0",
     "expo-av": "~15.1.7",
@@ -31,22 +32,21 @@
     "@expo/vector-icons": "^14.1.0",
     "@expo-google-fonts/montserrat": "0.4.1",
 
-    "react-native-svg": "15.11.2",
-    "react-native-screens": "~4.11.1",
-    "react-native-pager-view": "6.7.1",
-    "react-native-reanimated": "~3.17.4",
-    "react-native-gesture-handler": "~2.24.0",
-    "react-native-safe-area-context": "5.4.0",
+    "@react-native-async-storage/async-storage": "2.1.2",
+    "@react-native-picker/picker": "2.11.1",
 
     "@react-navigation/native": "^6.1.6",
-    "@react-navigation/bottom-tabs": "^6.4.4",
     "@react-navigation/stack": "^6.3.16",
+    "@react-navigation/bottom-tabs": "^6.4.4",
+
+    "react-native-gesture-handler": "~2.24.0",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-screens": "~4.11.1",
+    "react-native-pager-view": "6.7.1",
+    "react-native-svg": "15.11.2",
+    "react-native-reanimated": "~3.13.0",
 
     "d3-shape": "^3.2.0",
-    "@react-native-picker/picker": "2.11.1",
-    "@react-native-voice/voice": "3.2.4",
-
-    "@react-native-async-storage/async-storage": "2.1.2",
 
     "expo-health-connect": "^0.1.0",
     "react-native-health-connect": "^3.3.3",
@@ -67,6 +67,5 @@
         "listUnknownPackages": false
       }
     }
-  },
-  "private": true
+  }
 }
