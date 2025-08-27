@@ -1,13 +1,6 @@
 // App.js
 import React, { useEffect, useState } from 'react';
 import { View, TouchableOpacity, LogBox, Platform } from 'react-native';
-import {
-  useFonts,
-  Montserrat_400Regular,
-  Montserrat_500Medium,
-  Montserrat_700Bold
-} from '@expo-google-fonts/montserrat';
-import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -21,6 +14,9 @@ import theme from './theme';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import AuthGate from './auth/AuthGate';
 
+// 👇 nuevo: usamos el wrapper que carga Montserrat y maneja el Splash
+import FontGate from './src/FontGate';
+
 try { const crash = require('./crash'); crash?.install?.(); } catch {}
 
 LogBox.ignoreLogs([
@@ -28,8 +24,6 @@ LogBox.ignoreLogs([
   '`expo-notifications` functionality is not fully supported in Expo Go',
   'Cannot read property \'startSpeech\' of null'
 ]);
-
-try { SplashScreen.preventAutoHideAsync(); } catch {}
 
 const SETTINGS_KEY = '@latido_settings';
 const STREAK_CNT  = '@streak_count';
@@ -201,16 +195,13 @@ function MainTabs() {
 }
 
 function Root() {
-  const [fontsLoaded] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_700Bold });
   const { isProfileCompleted } = useAuth();
 
+  // Antes dependía de fontsLoaded; ahora FontGate controla el splash y el font-loading.
   useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync().catch(() => {});
-      const t = setTimeout(() => { setupNotificationsDeferred(); }, 1200);
-      return () => clearTimeout(t);
-    }
-  }, [fontsLoaded]);
+    const t = setTimeout(() => { setupNotificationsDeferred(); }, 1200);
+    return () => clearTimeout(t);
+  }, []);
 
   // Streak
   useEffect(() => {
@@ -235,8 +226,6 @@ function Root() {
       } catch (e) { console.debug('Streak auto-update error:', e?.message || e); }
     })();
   }, []);
-
-  if (!fontsLoaded) return null;
 
   const navTheme = {
     ...DefaultTheme,
@@ -271,10 +260,13 @@ function Root() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AuthGate>
-        <Root />
-      </AuthGate>
-    </AuthProvider>
+    // 👇 envolvemos TODO con FontGate para que no se pinte nada hasta cargar Montserrat
+    <FontGate>
+      <AuthProvider>
+        <AuthGate>
+          <Root />
+        </AuthGate>
+      </AuthProvider>
+    </FontGate>
   );
 }
