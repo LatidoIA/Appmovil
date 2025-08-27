@@ -18,17 +18,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci || npm i --legacy-peer-deps
 
-      # (Opcional) Muestra versiones para auditar
-      - name: Show tool versions
-        run: |
-          node -v
-          npm -v
-          npx --yes expo@latest --version
-          npx --yes eas-cli@latest --version
+      - name: EAS CLI version
+        run: npx --yes eas-cli@latest --version
 
       - name: Prepare keystore file
         shell: bash
@@ -39,27 +35,21 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
-      - name: Create credentials.json (local signing)
+      - name: Create credentials.json
         shell: bash
         run: |
           set -euo pipefail
           node -e 'const fs=require("fs");const c={android:{keystore:{keystorePath:"keystore.jks",keystorePassword:process.env.ANDROID_KEYSTORE_PASSWORD,keyAlias:process.env.ANDROID_KEY_ALIAS,keyPassword:process.env.ANDROID_KEY_PASSWORD}}};fs.writeFileSync("credentials.json",JSON.stringify(c,null,2));'
-          cat credentials.json
+          ls -l credentials.json
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
-      # Validamos que el app.config se pueda leer correctamente (si falla, veremos aquí el error real)
-      - name: Validate Expo config
-        run: npx --yes expo@latest config --json > /tmp/expo-config.json && cat /tmp/expo-config.json
-
       - name: Build Android (production)
         env:
           EAS_NON_INTERACTIVE: "1"
-          # Necesario para autenticar con EAS (mismo token que ya usas)
           EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
           EAS_ACCESS_TOKEN: ${{ secrets.EAS_TOKEN }}
-          # Log detallado
-          EXPO_DEBUG: "1"
-        run: npx --yes eas-cli@latest build --platform android --profile production --non-interactive --verbose
+          EXPO_DEBUG: "1"   # opcional: logs más detallados
+        run: npx --yes eas-cli@latest build --platform android --profile production --non-interactive
