@@ -1,12 +1,9 @@
-// app.config.js
 const {
   withProjectBuildGradle,
   withAndroidManifest,
 } = require('@expo/config-plugins');
 
-/**
- * ⛳ Quita librerías legacy de support para evitar choques con AndroidX
- */
+// 1) Excluye libs legacy com.android.support (evita choques con AndroidX)
 const withStripLegacySupport = (config) =>
   withProjectBuildGradle(config, (cfg) => {
     if (cfg.modResults.language !== 'groovy') return cfg;
@@ -25,21 +22,19 @@ subprojects {
     return cfg;
   });
 
-/**
- * ⛳ Fija appComponentFactory y añade tools:replace en AndroidManifest
- */
+// 2) Fija appComponentFactory y añade tools:replace
 const withFixAppComponentFactory = (config) =>
   withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
     manifest.$ = manifest.$ || {};
+    // asegura el namespace tools
     manifest.$['xmlns:tools'] =
       manifest.$['xmlns:tools'] || 'http://schemas.android.com/tools';
 
     const app = manifest.application?.[0];
     if (app) {
       app.$ = app.$ || {};
-      app.$['android:appComponentFactory'] =
-        'androidx.core.app.CoreComponentFactory';
+      app.$['android:appComponentFactory'] = 'androidx.core.app.CoreComponentFactory';
       const curr = app.$['tools:replace'] || '';
       if (!curr.includes('android:appComponentFactory')) {
         app.$['tools:replace'] = curr
@@ -58,7 +53,7 @@ module.exports = () => ({
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
 
-    /** requerido por expo-auth-session para el redirect */
+    // requerido por expo-auth-session
     scheme: 'latido',
 
     android: {
@@ -72,8 +67,7 @@ module.exports = () => ({
         'android.permission.BODY_SENSORS',
         'android.permission.ACTIVITY_RECOGNITION',
         'android.permission.POST_NOTIFICATIONS',
-
-        // (Opcional) Health Connect lecturas
+        // Health Connect (lectura)
         'android.permission.health.READ_STEPS',
         'android.permission.health.READ_HEART_RATE',
       ],
@@ -95,23 +89,14 @@ module.exports = () => ({
           },
         },
       ],
-
-      // 👉 Se carga SOLO si está instalado y seteas WITH_HEALTH_CONNECT=1
-      process.env.WITH_HEALTH_CONNECT === '1' && 'expo-health-connect',
-
       withStripLegacySupport,
       withFixAppComponentFactory,
-    ].filter(Boolean),
+    ],
 
     extra: {
       eas: {
         projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f',
       },
-    },
-
-    // Evita el warning futuro de EAS
-    cli: {
-      appVersionSource: 'remote',
     },
   },
 });
