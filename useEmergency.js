@@ -1,43 +1,43 @@
-// hooks/useEmergency.js (o ./useEmergency.js según tu ruta)
+// useEmergency.js (o hooks/useEmergency.js)
 import { useRef, useCallback } from 'react';
-import { Linking, Vibration, Alert, Platform } from 'react-native';
+import { Linking, Vibration, Alert } from 'react-native';
 
-// ⚠️ NO importes librerías nativas arriba.
-//    Las traemos bajo demanda para que no crashee el arranque.
+// Carga opcional SIN que Metro lo resuelva en build
+function safeRequire(modName) {
+  try {
+    // evita resolución estática de Metro
+    const req = eval('require'); // eslint-disable-line no-eval
+    return req(modName);
+  } catch (e) {
+    return null;
+  }
+}
 
 let VoiceMod = null;
 async function getVoice() {
   if (VoiceMod) return VoiceMod;
   try {
-    const m = await import('@react-native-voice/voice');
-    VoiceMod = m?.default || m;
-  } catch (e) {
-    console.debug('Voice import error:', e?.message || e);
-  }
+    // si no está instalado, retorna null sin romper el bundle
+    VoiceMod = safeRequire('@react-native-voice/voice');
+  } catch {}
   return VoiceMod;
 }
 
-let AudioNS = null; // { Audio }
+let AVNS = null; // { Audio } de expo-av
 async function getAudio() {
-  if (AudioNS) return AudioNS;
+  if (AVNS) return AVNS;
   try {
-    const m = await import('expo-audio');
-    AudioNS = m;
-  } catch (e) {
-    console.debug('Audio import error:', e?.message || e);
-  }
-  return AudioNS;
+    AVNS = safeRequire('expo-av');
+  } catch {}
+  return AVNS;
 }
 
-let LocationNS = null; // expo-location
+let LocationNS = null; // expo-location (opcional)
 async function getLocation() {
   if (LocationNS) return LocationNS;
   try {
-    const m = await import('expo-location');
-    LocationNS = m;
-  } catch (e) {
-    console.debug('Location import error:', e?.message || e);
-  }
+    LocationNS = safeRequire('expo-location');
+  } catch {}
   return LocationNS;
 }
 
@@ -52,10 +52,12 @@ export function useEmergency({
   const playingRef = useRef(null);
 
   const playSound = useCallback(async (asset) => {
+    if (!asset) return;
     try {
-      const Audio = await getAudio();
-      if (!Audio?.Audio) return;
-      const sound = new Audio.Audio.Sound();
+      const AV = await getAudio();
+      const Audio = AV?.Audio;
+      if (!Audio) return; // si no está expo-av instalado, ignora
+      const sound = new Audio.Sound();
       await sound.loadAsync(asset);
       playingRef.current = sound;
       await sound.playAsync();
@@ -68,7 +70,7 @@ export function useEmergency({
     try {
       await playingRef.current?.stopAsync?.();
       await playingRef.current?.unloadAsync?.();
-    } catch (e) {}
+    } catch {}
     playingRef.current = null;
   }, []);
 
@@ -105,7 +107,7 @@ export function useEmergency({
   const getCoords = useCallback(async () => {
     try {
       const Location = await getLocation();
-      if (!Location) return null;
+      if (!Location?.requestForegroundPermissionsAsync) return null;
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return null;
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
@@ -120,19 +122,16 @@ export function useEmergency({
     try {
       Vibration.vibrate(300);
 
-      // Sonidos (tick + alerta) bajo demanda
       if (tickSound)  playSound(tickSound);
       if (alertSound) setTimeout(() => playSound(alertSound), 500);
 
-      const voice = await getVoice(); // sólo carga si existe la lib
-      // Si tienes lógica de keyword con Voice, colócala aquí protegida:
+      const voice = await getVoice();
+      // si integras keyword/voice, protégelo:
       // try { await voice?.start?.('es-MX'); } catch(e) {}
 
-      // Ubicación (opcional)
       const coords = await getCoords();
       console.debug('EMERGENCY coords:', coords);
 
-      // Flujos de contacto
       const waOk = await sendWhatsApp();
       const callOk = await callPhone();
 
@@ -146,11 +145,9 @@ export function useEmergency({
     } catch (e) {
       console.debug('triggerEmergency error:', e?.message || e);
     } finally {
-      // corta el sonido después de unos segundos
       setTimeout(stopSound, 5000);
     }
   }, [alertSound, tickSound, sendWhatsApp, callPhone, getCoords, playSound, stopSound, testMode]);
 
   return { triggerEmergency };
 }
-
