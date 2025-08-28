@@ -6,13 +6,16 @@ const path = require('path');
 const config = getDefaultConfig(__dirname);
 const shim = path.resolve(__dirname, 'shim-empty.js');
 
-// 1) Bloquea que Metro lea cualquier archivo de @expo/config-plugins en node_modules
+// Conserva el resolver por defecto
+const defaultResolver = config.resolver || {};
+
 config.resolver = {
-  ...(config.resolver || {}),
+  ...defaultResolver,
+  // 1) Bloquea leer @expo/config-plugins
   blockList: exclusionList([/node_modules\/@expo\/config-plugins\/.*/]),
-  // 2) Mapea módulos de Node y config-plugins a un shim vacío (fallback)
+  // 2) Shims de node y de plugins de build (evita que Metro los resuelva)
   extraNodeModules: {
-    ...(config.resolver?.extraNodeModules || {}),
+    ...(defaultResolver.extraNodeModules || {}),
     fs: shim,
     'node:fs': shim,
     path: shim,
@@ -22,7 +25,13 @@ config.resolver = {
     '@expo/config-plugins': shim,
     '@expo/prebuild-config': shim,
     'expo/config': shim,
+    // opcional: si no tienes instalado @react-native-voice/voice,
+    // evita que Metro lo rompa
+    '@react-native-voice/voice': shim,
   },
+  // 3) Asegura que Metro empaquete .wav
+  assetExts: [...new Set([...(defaultResolver.assetExts || []), 'wav'])],
 };
 
 module.exports = config;
+
