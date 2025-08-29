@@ -1,5 +1,6 @@
 const { withProjectBuildGradle, withAndroidManifest } = require('@expo/config-plugins');
 
+// 1) Excluye libs legacy com.android.support
 const withStripLegacySupport = (config) =>
   withProjectBuildGradle(config, (cfg) => {
     if (cfg.modResults.language !== 'groovy') return cfg;
@@ -17,6 +18,7 @@ subprojects {
     return cfg;
   });
 
+// 2) Fija appComponentFactory y añade tools:replace
 const withFixAppComponentFactory = (config) =>
   withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
@@ -53,6 +55,7 @@ module.exports = () => ({
         'android.permission.BODY_SENSORS',
         'android.permission.ACTIVITY_RECOGNITION',
         'android.permission.POST_NOTIFICATIONS',
+        // Health Connect
         'android.permission.health.READ_STEPS',
         'android.permission.health.READ_HEART_RATE'
       ]
