@@ -53,7 +53,7 @@ module.exports = () => ({
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
 
-    // requerido por expo-auth-session
+    // requerido por expo-auth-session para el redirect
     scheme: 'latido',
 
     android: {
@@ -67,10 +67,11 @@ module.exports = () => ({
         'android.permission.BODY_SENSORS',
         'android.permission.ACTIVITY_RECOGNITION',
         'android.permission.POST_NOTIFICATIONS',
+
         // Health Connect (lectura)
         'android.permission.health.READ_STEPS',
-        'android.permission.health.READ_HEART_RATE',
-      ],
+        'android.permission.health.READ_HEART_RATE'
+      ]
     },
 
     plugins: [
@@ -84,19 +85,24 @@ module.exports = () => ({
             kotlinVersion: '2.0.21',
             gradleProperties: {
               'android.useAndroidX': 'true',
-              'android.enableJetifier': 'true',
-            },
-          },
-        },
+              'android.enableJetifier': 'true'
+            }
+          }
+        }
       ],
+      // ⛔️ QUITADO: 'expo-health-connect',
       withStripLegacySupport,
-      withFixAppComponentFactory,
+      withFixAppComponentFactory
     ],
 
     extra: {
       eas: {
-        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f',
-      },
+        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f'
+      }
     },
-  },
+
+    cli: {
+      appVersionSource: 'remote'
+    }
+  }
 });
