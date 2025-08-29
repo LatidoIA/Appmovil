@@ -52,10 +52,8 @@ module.exports = () => ({
     version: '1.0.0',
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
-
     // requerido por expo-auth-session para el redirect
     scheme: 'latido',
-
     android: {
       package: 'com.latido.app',
       permissions: [
@@ -67,13 +65,11 @@ module.exports = () => ({
         'android.permission.BODY_SENSORS',
         'android.permission.ACTIVITY_RECOGNITION',
         'android.permission.POST_NOTIFICATIONS',
-
         // Health Connect (lectura)
         'android.permission.health.READ_STEPS',
         'android.permission.health.READ_HEART_RATE'
       ]
     },
-
     plugins: [
       [
         'expo-build-properties',
@@ -94,13 +90,11 @@ module.exports = () => ({
       withStripLegacySupport,
       withFixAppComponentFactory
     ],
-
     extra: {
       eas: {
         projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f'
       }
     },
-
     cli: {
       appVersionSource: 'remote'
     }
