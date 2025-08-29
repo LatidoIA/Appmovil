@@ -1,8 +1,9 @@
-// components/CustomButton.js
-
+// CustomButton.js
 import React from 'react';
 import {
   TouchableOpacity,
+  View,
+  ActivityIndicator,
   StyleSheet,
   ViewStyle,
   TextStyle
@@ -11,100 +12,96 @@ import { LinearGradient } from 'expo-linear-gradient';
 import CustomText from './CustomText';
 import theme from './theme';
 
-type Props = {
-  title: string;
-  onPress: () => void;
-  variant?: 'primary' | 'outline';
-  style?: ViewStyle;
-  textStyle?: TextStyle;
-  disabled?: boolean;
-};
-
+/**
+ * Props:
+ * - title?: string
+ * - children?: React.Node
+ * - onPress?: () => void
+ * - disabled?: boolean
+ * - loading?: boolean
+ * - style?: ViewStyle
+ * - textStyle?: TextStyle
+ * - useGradient?: boolean (default true)
+ * - gradientColors?: [string, string] (default [theme.colors.primary, theme.colors.accent])
+ * - start?: { x: number, y: number } (default {x:0, y:0})
+ * - end?: { x: number, y: number } (default {x:1, y:1})
+ */
 export default function CustomButton({
   title,
+  children,
   onPress,
-  variant = 'primary',
+  disabled = false,
+  loading = false,
   style,
   textStyle,
-  disabled = false,
-}: Props) {
-  const isPrimary = variant === 'primary';
-
+  useGradient = true,
+  gradientColors = [theme.colors.primary, theme.colors.accent],
+  start = { x: 0, y: 0 },
+  end = { x: 1, y: 1 }
+}) {
   const content = (
-    <CustomText
-      style={[
-        styles.text,
-        isPrimary ? styles.textPrimary : styles.textOutline,
-        textStyle,
-      ]}
-    >
-      {title}
-    </CustomText>
+    <>
+      {loading ? (
+        <ActivityIndicator size="small" color="#fff" />
+      ) : title ? (
+        <CustomText style={[styles.text, textStyle]}>{title}</CustomText>
+      ) : (
+        children
+      )}
+    </>
   );
 
-  if (isPrimary) {
-    return (
-      <TouchableOpacity
-        onPress={onPress}
-        disabled={disabled}
-        activeOpacity={0.8}
-        style={[styles.button, disabled && styles.disabled, style]}
-      >
-        <LinearGradient
-          colors={['#009E8A', '#00C2A7']}
-          start={[0, 0]}
-          end={[1, 0]}
-          style={styles.gradient}
-        >
-          {content}
-        </LinearGradient>
-      </TouchableOpacity>
-    );
-  }
+  const isDisabled = disabled || loading;
 
   return (
     <TouchableOpacity
+      activeOpacity={0.85}
       onPress={onPress}
-      disabled={disabled}
-      activeOpacity={0.6}
-      style={[styles.button, styles.outline, disabled && styles.disabled, style]}
+      disabled={isDisabled}
+      style={[styles.touch, isDisabled && styles.touchDisabled, style]}
     >
-      {content}
+      {useGradient ? (
+        <LinearGradient
+          colors={gradientColors}
+          start={start}
+          end={end}
+          style={[styles.inner, isDisabled && styles.innerDisabled]}
+        >
+          {content}
+        </LinearGradient>
+      ) : (
+        <View style={[styles.inner, styles.solid, isDisabled && styles.innerDisabled]}>
+          {content}
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  button: {
-    borderRadius: theme.shape.borderRadius,
-    paddingVertical: theme.spacing.xs,
-    paddingHorizontal: theme.spacing.lg,
+  touch: {
+    borderRadius: 14,
+    overflow: 'hidden'
+  },
+  touchDisabled: {
+    opacity: 0.6
+  },
+  inner: {
+    minHeight: 48,
+    paddingHorizontal: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 14
   },
-  gradient: {
-    width: '100%',
-    borderRadius: theme.shape.borderRadius,
-    paddingVertical: theme.spacing.xs,
-    alignItems: 'center',
-    justifyContent: 'center',
+  innerDisabled: {
+    // el gradiente ya baja opacidad via touchDisabled; aquí solo mantenemos contraste
   },
-  outline: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-  },
-  disabled: {
-    opacity: 0.5,
+  solid: {
+    backgroundColor: theme.colors.primary
   },
   text: {
-    fontFamily: theme.typography.subtitle.fontFamily,
-    fontSize: theme.typography.subtitle.fontSize,
-  },
-  textPrimary: {
-    color: '#FFFFFF',
-  },
-  textOutline: {
-    color: theme.colors.primary,
-  },
+    color: '#fff',
+    fontSize: 16,
+    fontFamily: theme.typography.button?.fontFamily || theme.typography.body.fontFamily
+  }
 });
