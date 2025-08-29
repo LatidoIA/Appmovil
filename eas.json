@@ -1,6 +1,6 @@
 {
   "cli": {
-    "appVersionSource": "local"
+    "appVersionSource": "remote"
   },
   "build": {
     "production": {
@@ -8,7 +8,6 @@
         "credentialsSource": "local",
         "buildType": "app-bundle"
       }
-      
     }
   }
 }
