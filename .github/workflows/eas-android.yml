@@ -18,7 +18,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          # ❌ OJO: sin "cache: npm" porque no hay lockfile en el repo
 
       - name: Show Node/npm versions
         run: |
@@ -60,6 +59,7 @@ jobs:
 
       - name: Build Android (production)
         env:
+          NODE_ENV: production
           EAS_NON_INTERACTIVE: "1"
           EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
           EAS_ACCESS_TOKEN: ${{ secrets.EAS_TOKEN }}
