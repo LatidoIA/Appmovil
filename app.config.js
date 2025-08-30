@@ -84,15 +84,15 @@ module.exports = () => ({
         'android.permission.POST_NOTIFICATIONS',
         // Health Connect (lectura)
         'android.permission.health.READ_STEPS',
-        'android.permission.health.READ_HEART_RATE',
-      ],
+        'android.permission.health.READ_HEART_RATE'
+      ]
     },
 
     plugins: [
-      // Health Connect (requiere "expo-health-connect" y "react-native-health-connect" en package.json)
+      // Health Connect (requiere "expo-health-connect" en package.json)
       'expo-health-connect',
 
-      // Propiedades de build (SDKs/Gradle/Kotlin)
+      // Propiedades de build (SDKs/Gradle/Kotlin) + **Prefab + NDK**
       [
         'expo-build-properties',
         {
@@ -101,28 +101,33 @@ module.exports = () => ({
             targetSdkVersion: 35,
             minSdkVersion: 26,
             kotlinVersion: '2.0.21',
+            // 🔴 claves para resolver el fallo CMake: ReactAndroid::reactnativejni
+            ndkVersion: '26.1.10909125',
+            buildFeatures: {
+              prefab: true
+            },
             gradleProperties: {
               'android.useAndroidX': 'true',
-              'android.enableJetifier': 'true',
-            },
-          },
-        },
+              'android.enableJetifier': 'true'
+            }
+          }
+        }
       ],
 
       // Parches nativos
       withStripLegacySupport,
       withFixAppComponentFactory,
-      withStripEnableBundleCompression,
+      withStripEnableBundleCompression
     ],
 
     extra: {
       eas: {
-        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f',
-      },
+        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f'
+      }
     },
 
     cli: {
-      appVersionSource: 'remote',
-    },
-  },
+      appVersionSource: 'remote'
+    }
+  }
 });
