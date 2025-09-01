@@ -1,4 +1,3 @@
-// app.config.js
 const {
   withProjectBuildGradle,
   withAndroidManifest,
@@ -91,7 +90,7 @@ module.exports = () => ({
       // Health Connect
       'expo-health-connect',
 
-      // Propiedades de build
+      // Propiedades de build (SDKs/Gradle/Kotlin + prefab)
       [
         'expo-build-properties',
         {
@@ -103,7 +102,7 @@ module.exports = () => ({
             gradleProperties: {
               'android.useAndroidX': 'true',
               'android.enableJetifier': 'true',
-              // Necesario para CMake/prefab (ReactAndroid::reactnativejni) en RN 0.76
+              // Necesario para CMake/prefab (ReactAndroid::reactnativejni) con RN 0.76
               'android.prefabEnabled': 'true'
             }
           }
@@ -121,6 +120,7 @@ module.exports = () => ({
     },
 
     cli: {
+      // evita el warning y prepara versiones desde EAS
       appVersionSource: 'remote'
     }
   }
