@@ -40,7 +40,7 @@
     "react-native-screens": "~3.34.1",
     "react-native-svg": "15.3.0",
 
-    "react-native-health-connect": "0.8.0"
+    "react-native-health-connect": "github:Matinzd/react-native-health-connect"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",
