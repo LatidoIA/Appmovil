@@ -14,16 +14,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node (SDK53 recomienda Node 20+)
+      - name: Setup Node (SDK53 recommends Node 20+)
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          # No usamos cache npm porque quizá no tengas lockfile en repo
 
       - name: Show Node/npm versions
         run: |
           node -v
           npm -v
+          npm config list
 
       - name: Install dependencies
         run: |
@@ -47,22 +47,18 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
-      - name: Create credentials.json (local credentials for EAS)
+      - name: Create credentials.json
         shell: bash
         run: |
           set -euo pipefail
           node -e 'const fs=require("fs");const c={android:{keystore:{keystorePath:"keystore.jks",keystorePassword:process.env.ANDROID_KEYSTORE_PASSWORD,keyAlias:process.env.ANDROID_KEY_ALIAS,keyPassword:process.env.ANDROID_KEY_PASSWORD}}};fs.writeFileSync("credentials.json",JSON.stringify(c,null,2));'
-          echo "credentials.json:"
           cat credentials.json
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
-      - name: Print resolved app config (debug)
-        run: npx --yes expo@latest config --json || true
-
-      - name: Build Android (production)
+      - name: Build Android (production, local creds)
         env:
           EAS_NON_INTERACTIVE: "1"
           EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
