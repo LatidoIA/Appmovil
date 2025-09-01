@@ -1,11 +1,23 @@
 {
-  "cli": { "version": ">= 14.0.0" },
+  "cli": {
+    "version": ">= 11.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
     "production": {
-      "env": { "NODE_ENV": "production" },
-      "channel": "production",
+      "env": {
+        "NODE_ENV": "production"
+      },
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "credentialsSource": "local"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal"
       }
     }
   }
