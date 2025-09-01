@@ -89,10 +89,10 @@ module.exports = () => ({
     },
 
     plugins: [
-      // Health Connect (requiere "expo-health-connect" en package.json)
+      // Health Connect (requiere "expo-health-connect" y "react-native-health-connect" en package.json)
       'expo-health-connect',
 
-      // Propiedades de build (SDKs/Gradle/Kotlin) + **Prefab + NDK**
+      // Propiedades de build (SDKs/Gradle/Kotlin) + desactivar New Architecture
       [
         'expo-build-properties',
         {
@@ -101,11 +101,7 @@ module.exports = () => ({
             targetSdkVersion: 35,
             minSdkVersion: 26,
             kotlinVersion: '2.0.21',
-            // 🔴 claves para resolver el fallo CMake: ReactAndroid::reactnativejni
-            ndkVersion: '26.1.10909125',
-            buildFeatures: {
-              prefab: true
-            },
+            newArchitecture: false,
             gradleProperties: {
               'android.useAndroidX': 'true',
               'android.enableJetifier': 'true'
