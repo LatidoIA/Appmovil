@@ -10,21 +10,33 @@ jobs:
   build-android:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node (SDK53 recommends Node 20+)
+      - name: Setup Node (SDK53 recomienda Node 20+)
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          # sin "cache: npm" si no hay lockfile en el repo
 
-      - name: Show Node/npm versions
+      - name: Mostrar versiones
         run: |
           node -v
           npm -v
 
-      - name: Install dependencies
+      # 🔧 Hotfix: forzar versiones válidas de health-connect para evitar ETARGET
+      - name: Hotfix deps (expo-health-connect / rn-health-connect)
+        run: |
+          node -e "const fs=require('fs');const p=require('./package.json');
+            p.dependencies=p.dependencies||{};
+            p.dependencies['expo-health-connect']='^0.1.1';
+            p.dependencies['react-native-health-connect']='^3.3.3';
+            fs.writeFileSync('package.json', JSON.stringify(p,null,2));"
+          cat package.json | grep -E '"expo-health-connect"|"react-native-health-connect"' || true
+
+      - name: Instalar dependencias
         run: |
           if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
             echo "Lockfile encontrado -> npm ci"
@@ -37,7 +49,7 @@ jobs:
       - name: EAS CLI version
         run: npx --yes eas-cli@latest --version
 
-      - name: Prepare keystore file
+      - name: Preparar keystore
         shell: bash
         run: |
           set -euo pipefail
@@ -46,7 +58,7 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
 
-      - name: Create credentials.json
+      - name: Crear credentials.json (para submit opcional)
         shell: bash
         run: |
           set -euo pipefail
@@ -59,8 +71,8 @@ jobs:
 
       - name: Build Android (production)
         env:
-          NODE_ENV: production
           EAS_NON_INTERACTIVE: "1"
           EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
           EAS_ACCESS_TOKEN: ${{ secrets.EAS_TOKEN }}
+          NODE_ENV: production
         run: npx --yes eas-cli@latest build --platform android --profile production --non-interactive
