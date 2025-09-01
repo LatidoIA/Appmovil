@@ -1,4 +1,9 @@
-const { withProjectBuildGradle, withAndroidManifest, withAppBuildGradle } = require('@expo/config-plugins');
+// app.config.js
+const {
+  withProjectBuildGradle,
+  withAndroidManifest,
+  withAppBuildGradle,
+} = require('@expo/config-plugins');
 
 // 1) Excluye libs legacy com.android.support (evita choques con AndroidX)
 const withStripLegacySupport = (config) =>
@@ -10,6 +15,7 @@ const withStripLegacySupport = (config) =>
 ${marker}
 subprojects {
   project.configurations.all {
+    // elimina completamente libs legacy de support 28.x
     exclude group: 'com.android.support'
   }
 }
@@ -23,7 +29,8 @@ const withFixAppComponentFactory = (config) =>
   withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
     manifest.$ = manifest.$ || {};
-    manifest.$['xmlns:tools'] = manifest.$['xmlns:tools'] || 'http://schemas.android.com/tools';
+    manifest.$['xmlns:tools'] =
+      manifest.$['xmlns:tools'] || 'http://schemas.android.com/tools';
 
     const app = manifest.application?.[0];
     if (app) {
@@ -31,7 +38,9 @@ const withFixAppComponentFactory = (config) =>
       app.$['android:appComponentFactory'] = 'androidx.core.app.CoreComponentFactory';
       const curr = app.$['tools:replace'] || '';
       if (!curr.includes('android:appComponentFactory')) {
-        app.$['tools:replace'] = curr ? `${curr},android:appComponentFactory` : 'android:appComponentFactory';
+        app.$['tools:replace'] = curr
+          ? `${curr},android:appComponentFactory`
+          : 'android:appComponentFactory';
       }
     }
     return cfg;
@@ -57,6 +66,8 @@ module.exports = () => ({
     version: '1.0.0',
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
+
+    // requerido por expo-auth-session para el redirect
     scheme: 'latido',
 
     android: {
@@ -74,7 +85,7 @@ module.exports = () => ({
     },
 
     plugins: [
-      // Build props (SDKs/Gradle/Kotlin)
+      // Propiedades de build (SDKs/Gradle/Kotlin)
       [
         'expo-build-properties',
         {
@@ -98,10 +109,13 @@ module.exports = () => ({
     ],
 
     extra: {
-      eas: { projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f' }
+      eas: {
+        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f'
+      }
     },
 
-    // evita warnings futuros
-    cli: { appVersionSource: 'remote' }
+    cli: {
+      appVersionSource: 'remote'
+    }
   }
 });
