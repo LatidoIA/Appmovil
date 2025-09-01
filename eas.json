@@ -5,19 +5,10 @@
   },
   "build": {
     "production": {
-      "env": {
-        "NODE_ENV": "production"
-      },
+      "env": { "NODE_ENV": "production" },
       "android": {
         "buildType": "app-bundle",
         "credentialsSource": "local"
-      }
-    }
-  },
-  "submit": {
-    "production": {
-      "android": {
-        "track": "internal"
       }
     }
   }
