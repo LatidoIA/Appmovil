@@ -3,7 +3,11 @@ import React from 'react';
 import { View, Text as RNText } from 'react-native';
 
 const passthrough = (Base = View) =>
-  React.forwardRef((props, ref) => <Base ref={ref} {...props}>{props.children}</Base>);
+  React.forwardRef((props, ref) => (
+    <Base ref={ref} {...props}>
+      {props.children}
+    </Base>
+  ));
 
 export const Svg = passthrough(View);
 export const G = passthrough(View);
