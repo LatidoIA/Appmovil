@@ -1,19 +1,24 @@
 {
-  "cli": {
-    "version": ">= 12.0.0"
-  },
+  "cli": { "version": ">= 11.1.0" },
   "build": {
     "production": {
-      "android": {
-        "buildType": "app-bundle"
-      },
       "developmentClient": false,
+      "distribution": "store",
+      "android": {
+        "buildType": "app-bundle",
+        "image": "latest"
+      },
       "env": {
         "NODE_ENV": "production"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./credentials.json",
+        "track": "internal"
+      }
+    }
   }
 }
