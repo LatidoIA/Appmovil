@@ -1,14 +1,19 @@
 {
+  "cli": {
+    "version": ">= 14.0.0"
+  },
   "build": {
     "production": {
+      "credentialsSource": "local",
       "env": {
         "NODE_ENV": "production"
       },
       "android": {
-        "credentialsSource": "local",
-        "buildType": "app-bundle",
-        "gradleCommand": ":app:bundleRelease"
+        "buildType": "app-bundle"
       }
     }
+  },
+  "submit": {
+    "production": {}
   }
 }
