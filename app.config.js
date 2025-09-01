@@ -1,3 +1,4 @@
+// app.config.js
 const {
   withProjectBuildGradle,
   withAndroidManifest,
@@ -65,10 +66,7 @@ module.exports = () => ({
     version: '1.0.0',
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
-
-    // requerido por expo-auth-session para el redirect
     scheme: 'latido',
-
     android: {
       package: 'com.latido.app',
       permissions: [
@@ -80,17 +78,12 @@ module.exports = () => ({
         'android.permission.BODY_SENSORS',
         'android.permission.ACTIVITY_RECOGNITION',
         'android.permission.POST_NOTIFICATIONS',
-        // Health Connect (lectura)
         'android.permission.health.READ_STEPS',
         'android.permission.health.READ_HEART_RATE'
       ]
     },
-
     plugins: [
-      // Health Connect
       'expo-health-connect',
-
-      // Propiedades de build (SDKs/Gradle/Kotlin + prefab)
       [
         'expo-build-properties',
         {
@@ -101,26 +94,19 @@ module.exports = () => ({
             kotlinVersion: '2.0.21',
             gradleProperties: {
               'android.useAndroidX': 'true',
-              'android.enableJetifier': 'true',
-              // Necesario para CMake/prefab (ReactAndroid::reactnativejni) con RN 0.76
-              'android.prefabEnabled': 'true'
+              'android.enableJetifier': 'true'
             }
           }
         }
       ],
-
-      // Parches nativos
       withStripLegacySupport,
       withFixAppComponentFactory,
       withStripEnableBundleCompression
     ],
-
     extra: {
       eas: { projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f' }
     },
-
     cli: {
-      // evita el warning y prepara versiones desde EAS
       appVersionSource: 'remote'
     }
   }
