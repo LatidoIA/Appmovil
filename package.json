@@ -44,7 +44,7 @@
 
     "react-native-reanimated": "^3.16.0",
 
-    "react-native-health-connect": "0.8.1",
+    "react-native-health-connect": "^0.7.0",
 
     "react-native-svg": "15.11.2",
 
