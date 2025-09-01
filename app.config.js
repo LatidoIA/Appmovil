@@ -1,4 +1,3 @@
-// app.config.js
 const {
   withProjectBuildGradle,
   withAndroidManifest,
@@ -46,7 +45,7 @@ const withFixAppComponentFactory = (config) =>
     return cfg;
   });
 
-// 3) Quita línea obsoleta "enableBundleCompression" del build.gradle (RN 0.76+)
+// 3) Borra línea obsoleta enableBundleCompression del app/build.gradle
 const withStripEnableBundleCompression = (config) =>
   withAppBuildGradle(config, (cfg) => {
     const mod = cfg.modResults;
@@ -66,7 +65,6 @@ module.exports = () => ({
     version: '1.0.0',
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
-    // requerido por expo-auth-session para el redirect
     scheme: 'latido',
     android: {
       package: 'com.latido.app',
@@ -85,10 +83,7 @@ module.exports = () => ({
       ]
     },
     plugins: [
-      // Health Connect
       'expo-health-connect',
-
-      // Build props (SDKs/Gradle/Kotlin)
       [
         'expo-build-properties',
         {
@@ -104,8 +99,6 @@ module.exports = () => ({
           }
         }
       ],
-
-      // Parches nativos
       withStripLegacySupport,
       withFixAppComponentFactory,
       withStripEnableBundleCompression
