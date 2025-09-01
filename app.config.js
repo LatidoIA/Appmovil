@@ -45,13 +45,14 @@ const withFixAppComponentFactory = (config) =>
     return cfg;
   });
 
-// 3) Borra línea obsoleta enableBundleCompression del app/build.gradle
+// 3) Quita línea obsoleta "enableBundleCompression" del build.gradle (RN 0.76+)
 const withStripEnableBundleCompression = (config) =>
   withAppBuildGradle(config, (cfg) => {
     const mod = cfg.modResults;
     if (mod.language !== 'groovy') return cfg;
     const marker = '/* ⛳ strip-enableBundleCompression */';
     if (!mod.contents.includes(marker)) {
+      // borra cualquier asignación a enableBundleCompression en el gradle del app
       mod.contents = mod.contents.replace(/^\s*enableBundleCompression\s*=\s*.*\n/gm, '');
       mod.contents += `\n${marker}\n`;
     }
@@ -65,7 +66,10 @@ module.exports = () => ({
     version: '1.0.0',
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
+
+    // requerido por expo-auth-session para el redirect
     scheme: 'latido',
+
     android: {
       package: 'com.latido.app',
       permissions: [
@@ -79,11 +83,15 @@ module.exports = () => ({
         'android.permission.POST_NOTIFICATIONS',
         // Health Connect (lectura)
         'android.permission.health.READ_STEPS',
-        'android.permission.health.READ_HEART_RATE'
-      ]
+        'android.permission.health.READ_HEART_RATE',
+      ],
     },
+
     plugins: [
+      // Health Connect (requiere "expo-health-connect" en package.json)
       'expo-health-connect',
+
+      // Propiedades de build (SDKs/Gradle/Kotlin)
       [
         'expo-build-properties',
         {
@@ -94,22 +102,26 @@ module.exports = () => ({
             kotlinVersion: '2.0.21',
             gradleProperties: {
               'android.useAndroidX': 'true',
-              'android.enableJetifier': 'true'
-            }
-          }
-        }
+              'android.enableJetifier': 'true',
+            },
+          },
+        },
       ],
+
+      // Parches nativos
       withStripLegacySupport,
       withFixAppComponentFactory,
-      withStripEnableBundleCompression
+      withStripEnableBundleCompression,
     ],
+
     extra: {
       eas: {
-        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f'
-      }
+        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f',
+      },
     },
+
     cli: {
-      appVersionSource: 'remote'
-    }
-  }
+      appVersionSource: 'remote',
+    },
+  },
 });
