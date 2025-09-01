@@ -1,4 +1,3 @@
-// app.config.js
 const {
   withProjectBuildGradle,
   withAndroidManifest,
@@ -67,7 +66,6 @@ module.exports = () => ({
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
 
-    // requerido por expo-auth-session para el redirect
     scheme: 'latido',
 
     android: {
