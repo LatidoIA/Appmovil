@@ -19,24 +19,28 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          # sin "cache: npm" si no hay lockfile en el repo
 
       - name: Mostrar versiones
         run: |
           node -v
           npm -v
 
-      # 🔧 Hotfix: forzar versiones válidas de health-connect para evitar ETARGET
-      - name: Hotfix deps (expo-health-connect / rn-health-connect)
+      - name: Crear .npmrc para CI
         run: |
-          node -e "const fs=require('fs');const p=require('./package.json');
-            p.dependencies=p.dependencies||{};
-            p.dependencies['expo-health-connect']='^0.1.1';
-            p.dependencies['react-native-health-connect']='^3.3.3';
-            fs.writeFileSync('package.json', JSON.stringify(p,null,2));"
-          cat package.json | grep -E '"expo-health-connect"|"react-native-health-connect"' || true
+          printf "legacy-peer-deps=true\naudit=false\nfund=false\n" > .npmrc
+          cat .npmrc
 
-      - name: Instalar dependencias
+      # 🔧 Paso CLAVE: forzar versiones válidas para evitar ETARGET (0.9.0 no existe)
+      - name: Pin de Health Connect (exact)
+        run: |
+          set -e
+          # limpia cualquier versión previa del package.json (si existiera)
+          node -e "const fs=require('fs'); const p=require('./package.json'); p.dependencies=p.dependencies||{}; delete p.dependencies['react-native-health-connect']; delete p.dependencies['expo-health-connect']; fs.writeFileSync('package.json', JSON.stringify(p,null,2));"
+          # instala y escribe EXACTAMENTE estas versiones en package.json
+          npm i --save-exact react-native-health-connect@3.3.3 expo-health-connect@0.1.1 --no-audit --no-fund --legacy-peer-deps
+          node -e "const p=require('./package.json'); console.log('react-native-health-connect=',p.dependencies['react-native-health-connect'],'expo-health-connect=',p.dependencies['expo-health-connect'])"
+
+      - name: Instalar dependencias del proyecto
         run: |
           if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
             echo "Lockfile encontrado -> npm ci"
