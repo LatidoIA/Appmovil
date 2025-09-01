@@ -88,10 +88,10 @@ module.exports = () => ({
     },
 
     plugins: [
-      // Health Connect (requiere los deps instalados)
+      // Health Connect
       'expo-health-connect',
 
-      // Propiedades de build (SDKs/Gradle/Kotlin)
+      // Propiedades de build
       [
         'expo-build-properties',
         {
@@ -102,7 +102,9 @@ module.exports = () => ({
             kotlinVersion: '2.0.21',
             gradleProperties: {
               'android.useAndroidX': 'true',
-              'android.enableJetifier': 'true'
+              'android.enableJetifier': 'true',
+              // Necesario para CMake/prefab (ReactAndroid::reactnativejni) en RN 0.76
+              'android.prefabEnabled': 'true'
             }
           }
         }
@@ -115,9 +117,7 @@ module.exports = () => ({
     ],
 
     extra: {
-      eas: {
-        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f'
-      }
+      eas: { projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f' }
     },
 
     cli: {
