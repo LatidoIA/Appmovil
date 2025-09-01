@@ -53,7 +53,6 @@ const withStripEnableBundleCompression = (config) =>
     if (mod.language !== 'groovy') return cfg;
     const marker = '/* ⛳ strip-enableBundleCompression */';
     if (!mod.contents.includes(marker)) {
-      // borra cualquier asignación a enableBundleCompression en el gradle del app
       mod.contents = mod.contents.replace(/^\s*enableBundleCompression\s*=\s*.*\n/gm, '');
       mod.contents += `\n${marker}\n`;
     }
@@ -89,10 +88,10 @@ module.exports = () => ({
     },
 
     plugins: [
-      // Health Connect (requiere "expo-health-connect" y "react-native-health-connect" en package.json)
+      // Health Connect
       'expo-health-connect',
 
-      // Propiedades de build (SDKs/Gradle/Kotlin) + desactivar New Architecture
+      // Build props + desactivar New Architecture
       [
         'expo-build-properties',
         {
