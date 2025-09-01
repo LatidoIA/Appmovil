@@ -1,5 +1,6 @@
 const { withProjectBuildGradle, withAndroidManifest, withAppBuildGradle } = require('@expo/config-plugins');
 
+// 1) Excluye libs legacy com.android.support (evita choques con AndroidX)
 const withStripLegacySupport = (config) =>
   withProjectBuildGradle(config, (cfg) => {
     if (cfg.modResults.language !== 'groovy') return cfg;
@@ -9,7 +10,6 @@ const withStripLegacySupport = (config) =>
 ${marker}
 subprojects {
   project.configurations.all {
-    // elimina completamente libs legacy de support 28.x
     exclude group: 'com.android.support'
   }
 }
@@ -18,6 +18,7 @@ subprojects {
     return cfg;
   });
 
+// 2) Fija appComponentFactory y añade tools:replace
 const withFixAppComponentFactory = (config) =>
   withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
@@ -36,6 +37,7 @@ const withFixAppComponentFactory = (config) =>
     return cfg;
   });
 
+// 3) Quita línea obsoleta "enableBundleCompression" del build.gradle (RN 0.76+)
 const withStripEnableBundleCompression = (config) =>
   withAppBuildGradle(config, (cfg) => {
     const mod = cfg.modResults;
@@ -56,6 +58,7 @@ module.exports = () => ({
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
     scheme: 'latido',
+
     android: {
       package: 'com.latido.app',
       permissions: [
@@ -69,7 +72,9 @@ module.exports = () => ({
         'android.permission.POST_NOTIFICATIONS'
       ]
     },
+
     plugins: [
+      // Build props (SDKs/Gradle/Kotlin)
       [
         'expo-build-properties',
         {
@@ -85,11 +90,18 @@ module.exports = () => ({
           }
         }
       ],
+
+      // Parches nativos
       withStripLegacySupport,
       withFixAppComponentFactory,
       withStripEnableBundleCompression
     ],
-    extra: { eas: { projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f' } },
+
+    extra: {
+      eas: { projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f' }
+    },
+
+    // evita warnings futuros
     cli: { appVersionSource: 'remote' }
   }
 });
