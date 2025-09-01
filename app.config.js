@@ -9,6 +9,7 @@ const withStripLegacySupport = (config) =>
 ${marker}
 subprojects {
   project.configurations.all {
+    // elimina completamente libs legacy de support 28.x
     exclude group: 'com.android.support'
   }
 }
@@ -22,6 +23,7 @@ const withFixAppComponentFactory = (config) =>
     const manifest = cfg.modResults.manifest;
     manifest.$ = manifest.$ || {};
     manifest.$['xmlns:tools'] = manifest.$['xmlns:tools'] || 'http://schemas.android.com/tools';
+
     const app = manifest.application?.[0];
     if (app) {
       app.$ = app.$ || {};
@@ -64,13 +66,10 @@ module.exports = () => ({
         'android.permission.ACCESS_FINE_LOCATION',
         'android.permission.BODY_SENSORS',
         'android.permission.ACTIVITY_RECOGNITION',
-        'android.permission.POST_NOTIFICATIONS',
-        'android.permission.health.READ_STEPS',
-        'android.permission.health.READ_HEART_RATE',
-      ],
+        'android.permission.POST_NOTIFICATIONS'
+      ]
     },
     plugins: [
-      'expo-health-connect',
       [
         'expo-build-properties',
         {
@@ -81,16 +80,16 @@ module.exports = () => ({
             kotlinVersion: '2.0.21',
             gradleProperties: {
               'android.useAndroidX': 'true',
-              'android.enableJetifier': 'true',
-            },
-          },
-        },
+              'android.enableJetifier': 'true'
+            }
+          }
+        }
       ],
       withStripLegacySupport,
       withFixAppComponentFactory,
-      withStripEnableBundleCompression,
+      withStripEnableBundleCompression
     ],
     extra: { eas: { projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f' } },
-    cli: { appVersionSource: 'remote' },
-  },
+    cli: { appVersionSource: 'remote' }
+  }
 });
