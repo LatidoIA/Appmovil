@@ -1,23 +1,13 @@
 {
-  "cli": { "version": ">= 11.1.0" },
   "build": {
     "production": {
-      "developmentClient": false,
-      "distribution": "store",
-      "android": {
-        "buildType": "app-bundle",
-        "image": "latest"
-      },
       "env": {
         "NODE_ENV": "production"
-      }
-    }
-  },
-  "submit": {
-    "production": {
+      },
       "android": {
-        "serviceAccountKeyPath": "./credentials.json",
-        "track": "internal"
+        "credentialsSource": "local",
+        "buildType": "app-bundle",
+        "gradleCommand": ":app:bundleRelease"
       }
     }
   }
