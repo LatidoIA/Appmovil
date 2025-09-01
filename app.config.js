@@ -1,11 +1,5 @@
-// app.config.js
-const {
-  withProjectBuildGradle,
-  withAndroidManifest,
-  withAppBuildGradle,
-} = require('@expo/config-plugins');
+const { withProjectBuildGradle, withAndroidManifest, withAppBuildGradle } = require('@expo/config-plugins');
 
-// 1) Excluye libs legacy com.android.support (evita choques con AndroidX)
 const withStripLegacySupport = (config) =>
   withProjectBuildGradle(config, (cfg) => {
     if (cfg.modResults.language !== 'groovy') return cfg;
@@ -15,7 +9,6 @@ const withStripLegacySupport = (config) =>
 ${marker}
 subprojects {
   project.configurations.all {
-    // elimina completamente libs legacy de support 28.x
     exclude group: 'com.android.support'
   }
 }
@@ -24,36 +17,29 @@ subprojects {
     return cfg;
   });
 
-// 2) Fija appComponentFactory y añade tools:replace
 const withFixAppComponentFactory = (config) =>
   withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
     manifest.$ = manifest.$ || {};
-    manifest.$['xmlns:tools'] =
-      manifest.$['xmlns:tools'] || 'http://schemas.android.com/tools';
-
+    manifest.$['xmlns:tools'] = manifest.$['xmlns:tools'] || 'http://schemas.android.com/tools';
     const app = manifest.application?.[0];
     if (app) {
       app.$ = app.$ || {};
       app.$['android:appComponentFactory'] = 'androidx.core.app.CoreComponentFactory';
       const curr = app.$['tools:replace'] || '';
       if (!curr.includes('android:appComponentFactory')) {
-        app.$['tools:replace'] = curr
-          ? `${curr},android:appComponentFactory`
-          : 'android:appComponentFactory';
+        app.$['tools:replace'] = curr ? `${curr},android:appComponentFactory` : 'android:appComponentFactory';
       }
     }
     return cfg;
   });
 
-// 3) Quita línea obsoleta "enableBundleCompression" del build.gradle (RN 0.76+)
 const withStripEnableBundleCompression = (config) =>
   withAppBuildGradle(config, (cfg) => {
     const mod = cfg.modResults;
     if (mod.language !== 'groovy') return cfg;
     const marker = '/* ⛳ strip-enableBundleCompression */';
     if (!mod.contents.includes(marker)) {
-      // borra cualquier asignación a enableBundleCompression en el gradle del app
       mod.contents = mod.contents.replace(/^\s*enableBundleCompression\s*=\s*.*\n/gm, '');
       mod.contents += `\n${marker}\n`;
     }
@@ -67,10 +53,7 @@ module.exports = () => ({
     version: '1.0.0',
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
-
-    // requerido por expo-auth-session para el redirect
     scheme: 'latido',
-
     android: {
       package: 'com.latido.app',
       permissions: [
@@ -82,17 +65,12 @@ module.exports = () => ({
         'android.permission.BODY_SENSORS',
         'android.permission.ACTIVITY_RECOGNITION',
         'android.permission.POST_NOTIFICATIONS',
-        // Health Connect (lectura)
         'android.permission.health.READ_STEPS',
         'android.permission.health.READ_HEART_RATE',
       ],
     },
-
     plugins: [
-      // Health Connect (usa expo-health-connect)
       'expo-health-connect',
-
-      // Build props (SDKs/Gradle/Kotlin)
       [
         'expo-build-properties',
         {
@@ -108,22 +86,11 @@ module.exports = () => ({
           },
         },
       ],
-
-      // Parches nativos
       withStripLegacySupport,
       withFixAppComponentFactory,
       withStripEnableBundleCompression,
     ],
-
-    extra: {
-      eas: {
-        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f',
-      },
-    },
-
-    // 👇 esto silencia el warning de EAS y es compatible 100%
-    cli: {
-      appVersionSource: 'remote',
-    },
+    extra: { eas: { projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f' } },
+    cli: { appVersionSource: 'remote' },
   },
 });
