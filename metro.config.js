@@ -4,8 +4,11 @@ const exclusionList = require('metro-config/src/defaults/exclusionList');
 const path = require('path');
 
 const config = getDefaultConfig(__dirname);
-const shim = path.resolve(__dirname, 'shim-empty.js');
 
+const emptyShim = path.resolve(__dirname, 'shim-empty.js');
+const reanimatedShim = path.resolve(__dirname, 'shim-reanimated.js');
+
+// Conserva el resolver por defecto
 const defaultResolver = config.resolver || {};
 
 config.resolver = {
@@ -15,24 +18,24 @@ config.resolver = {
   // 2) Shims de node y de plugins de build (evita que Metro los resuelva)
   extraNodeModules: {
     ...(defaultResolver.extraNodeModules || {}),
-    fs: shim,
-    'node:fs': shim,
-    path: shim,
-    'node:path': shim,
-    os: shim,
-    'node:os': shim,
-    '@expo/config-plugins': shim,
-    '@expo/prebuild-config': shim,
-    'expo/config': shim,
+    fs: emptyShim,
+    'node:fs': emptyShim,
+    path: emptyShim,
+    'node:path': emptyShim,
+    os: emptyShim,
+    'node:os': emptyShim,
+    '@expo/config-plugins': emptyShim,
+    '@expo/prebuild-config': emptyShim,
+    'expo/config': emptyShim,
+
+    // evita que Metro intente resolver el nativo de Reanimated
+    'react-native-reanimated': reanimatedShim,
+
     // opcional: si no tienes instalado @react-native-voice/voice,
-    // evita que Metro lo rompa
-    '@react-native-voice/voice': shim,
-    // evita fallos si queda algún import a Health Connect
-    'expo-health-connect': shim,
-    'react-native-health-connect': shim
+    '@react-native-voice/voice': emptyShim
   },
   // 3) Asegura que Metro empaquete .wav
-  assetExts: [...new Set([...(defaultResolver.assetExts || []), 'wav'])],
+  assetExts: [...new Set([...(defaultResolver.assetExts || []), 'wav'])]
 };
 
 module.exports = config;
