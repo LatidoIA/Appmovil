@@ -88,10 +88,10 @@ module.exports = () => ({
     },
 
     plugins: [
-      // Health Connect
+      // Health Connect (requiere los deps instalados)
       'expo-health-connect',
 
-      // Build props + desactivar New Architecture
+      // Propiedades de build (SDKs/Gradle/Kotlin)
       [
         'expo-build-properties',
         {
@@ -100,7 +100,6 @@ module.exports = () => ({
             targetSdkVersion: 35,
             minSdkVersion: 26,
             kotlinVersion: '2.0.21',
-            newArchitecture: false,
             gradleProperties: {
               'android.useAndroidX': 'true',
               'android.enableJetifier': 'true'
