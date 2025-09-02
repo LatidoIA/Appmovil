@@ -59,9 +59,8 @@ module.exports = () => ({
         'android.permission.ACCESS_FINE_LOCATION',
         'android.permission.BODY_SENSORS',
         'android.permission.ACTIVITY_RECOGNITION',
-        'android.permission.POST_NOTIFICATIONS',
-        'android.permission.health.READ_STEPS',
-        'android.permission.health.READ_HEART_RATE'
+        'android.permission.POST_NOTIFICATIONS'
+        // HC: dejamos runtime vía SDK; no activamos plugin nativo aquí aún
       ]
     },
     plugins: [
@@ -82,7 +81,7 @@ module.exports = () => ({
       ],
       withStripLegacySupport,
       withFixAppComponentFactory
-      // ⛔️ 'expo-health-connect' lo reactivamos más adelante con su paquete instalado
+      // 'expo-health-connect' -> lo activamos después del build estable
     ],
     extra: {
       eas: {
