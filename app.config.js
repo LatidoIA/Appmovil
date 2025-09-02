@@ -1,6 +1,7 @@
 const {
   withProjectBuildGradle,
   withAndroidManifest,
+  withAppBuildGradle, // 👈
 } = require('@expo/config-plugins');
 
 const withStripLegacySupport = (config) =>
@@ -41,6 +42,21 @@ const withFixAppComponentFactory = (config) =>
     return cfg;
   });
 
+// 🔧 NUEVO: elimina cualquier uso de `enableBundleCompression` del bloque `react { ... }`
+const withRemoveEnableBundleCompression = (config) =>
+  withAppBuildGradle(config, (cfg) => {
+    const isGroovy = cfg.modResults.language === 'groovy';
+    if (!isGroovy) return cfg;
+    const before = cfg.modResults.contents;
+    // Quita la línea (o líneas) que contengan la clave dentro del bloque react
+    const cleaned = before.replace(/react\s*\{[^}]*\benableBundleCompression\s*=\s*.*?\n([^}]*\})/gs, (m) =>
+      m.replace(/^\s*enableBundleCompression\s*=.*\n/gm, '')
+    );
+    // Por si estuviera fuera del bloque react:
+    cfg.modResults.contents = cleaned.replace(/^\s*enableBundleCompression\s*=.*\n/gm, '');
+    return cfg;
+  });
+
 module.exports = () => ({
   expo: {
     name: 'Latido',
@@ -60,7 +76,6 @@ module.exports = () => ({
         'android.permission.BODY_SENSORS',
         'android.permission.ACTIVITY_RECOGNITION',
         'android.permission.POST_NOTIFICATIONS'
-        // HC: dejamos runtime vía SDK; no activamos plugin nativo aquí aún
       ]
     },
     plugins: [
@@ -80,13 +95,11 @@ module.exports = () => ({
         }
       ],
       withStripLegacySupport,
-      withFixAppComponentFactory
-      // 'expo-health-connect' -> lo activamos después del build estable
+      withFixAppComponentFactory,
+      withRemoveEnableBundleCompression // 👈 añade este
     ],
     extra: {
-      eas: {
-        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f'
-      }
+      eas: { projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f' }
     }
   }
 });
