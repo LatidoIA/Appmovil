@@ -1,8 +1,7 @@
-// useEmergency.js
-import { useRef, useCallback, useEffect } from 'react';
-import { Linking, Vibration, Alert, Platform } from 'react-native';
+import { useRef, useCallback } from 'react';
+import { Linking, Vibration, Alert } from 'react-native';
 
-// ⚠️ Importaciones nativas bajo demanda para evitar crasheos en arranque
+// Dinámicos: no rompen si la lib no está instalada
 let VoiceMod = null;
 async function getVoice() {
   if (VoiceMod) return VoiceMod;
@@ -15,19 +14,19 @@ async function getVoice() {
   return VoiceMod;
 }
 
-let AudioNS = null; // { Audio }
-async function getAudio() {
-  if (AudioNS) return AudioNS;
+let AVNS = null; // expo-av
+async function getAV() {
+  if (AVNS) return AVNS;
   try {
-    const m = await import('expo-av'); // ✅ paquete correcto en Expo SDK 53
-    AudioNS = m;
+    const m = await import('expo-av');
+    AVNS = m;
   } catch (e) {
-    console.debug('Audio import error:', e?.message || e);
+    console.debug('AV import error:', e?.message || e);
   }
-  return AudioNS;
+  return AVNS;
 }
 
-let LocationNS = null; // expo-location
+let LocationNS = null; // expo-location (opcional)
 async function getLocation() {
   if (LocationNS) return LocationNS;
   try {
@@ -39,52 +38,24 @@ async function getLocation() {
   return LocationNS;
 }
 
-/**
- * Hook de emergencia
- * @param {Object} params
- * @param {string} params.phoneNumber        Teléfono a llamar (ej: +54911...)
- * @param {string} params.whatsappNumber     Teléfono para WhatsApp (con código país)
- * @param {string} params.whatsappText       Texto a enviar por WhatsApp
- * @param {*}      params.alertSound         require('...') de sonido de alerta
- * @param {*}      params.tickSound          require('...') de sonido "tick"
- * @param {boolean}params.testMode           Si true, muestra alertas de simulación
- */
 export function useEmergency({
   phoneNumber,
   whatsappNumber,
   whatsappText = 'Necesito ayuda.',
   alertSound,
   tickSound,
-  testMode = false,
+  testMode = false
 } = {}) {
   const playingRef = useRef(null);
 
-  // Configura el modo de audio en iOS (silencioso) cuando haga falta
-  const ensureAudioMode = useCallback(async () => {
-    try {
-      const { Audio } = await getAudio() || {};
-      if (!Audio) return;
-      if (Platform.OS === 'ios') {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: false,
-          interruptionModeIOS: 1, // DuckOthers
-          shouldDuckAndroid: true,
-          playThroughEarpieceAndroid: false,
-        });
-      }
-    } catch (e) {
-      console.debug('ensureAudioMode error:', e?.message || e);
-    }
-  }, []);
-
   const playSound = useCallback(async (asset) => {
     try {
-      const { Audio } = await getAudio() || {};
-      if (!Audio || !asset) return;
-      const sound = new Audio.Sound();
-      await sound.loadAsync(asset, { shouldPlay: true });
+      const AV = await getAV();
+      if (!AV?.Audio) return;
+      const sound = new AV.Audio.Sound();
+      await sound.loadAsync(asset);
       playingRef.current = sound;
+      await sound.playAsync();
     } catch (e) {
       console.debug('playSound error:', e?.message || e);
     }
@@ -98,31 +69,13 @@ export function useEmergency({
     playingRef.current = null;
   }, []);
 
-  useEffect(() => {
-    return () => {
-      // cleanup al desmontar el componente que usa el hook
-      stopSound();
-    };
-  }, [stopSound]);
-
   const sendWhatsApp = useCallback(async () => {
     try {
       if (!whatsappNumber) return false;
-      const url = `whatsapp://send?phone=${encodeURIComponent(
-        whatsappNumber
-      )}&text=${encodeURIComponent(whatsappText)}`;
+      const url = `whatsapp://send?phone=${encodeURIComponent(whatsappNumber)}&text=${encodeURIComponent(whatsappText)}`;
       const supported = await Linking.canOpenURL(url);
       if (supported) {
         await Linking.openURL(url);
-        return true;
-      }
-      // Fallback: intento con wa.me (algunos dispositivos lo resuelven vía navegador)
-      const waMe = `https://wa.me/${encodeURIComponent(
-        whatsappNumber
-      )}?text=${encodeURIComponent(whatsappText)}`;
-      const supportedWeb = await Linking.canOpenURL(waMe);
-      if (supportedWeb) {
-        await Linking.openURL(waMe);
         return true;
       }
     } catch (e) {
@@ -150,16 +103,10 @@ export function useEmergency({
     try {
       const Location = await getLocation();
       if (!Location) return null;
-      const { status } =
-        await Location.requestForegroundPermissionsAsync();
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return null;
-      const pos = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      return {
-        lat: pos?.coords?.latitude,
-        lon: pos?.coords?.longitude,
-      };
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      return { lat: pos?.coords?.latitude, lon: pos?.coords?.longitude };
     } catch (e) {
       console.debug('Location error:', e?.message || e);
       return null;
@@ -168,60 +115,33 @@ export function useEmergency({
 
   const triggerEmergency = useCallback(async () => {
     try {
-      // vibración corta para feedback inmediato
-      Vibration.vibrate(Platform.OS === 'android' ? 200 : 300);
+      Vibration.vibrate(300);
 
-      await ensureAudioMode();
-
-      // sonido de “tick” + luego alarma
-      if (tickSound) playSound(tickSound);
+      if (tickSound)  playSound(tickSound);
       if (alertSound) setTimeout(() => playSound(alertSound), 500);
 
-      // Carga opcional de reconocimiento de voz (si está instalado)
       const voice = await getVoice();
-      // Ejemplo de uso (desactivado por seguridad):
-      // try { await voice?.start?.(Platform.OS === 'ios' ? 'es-ES' : 'es-MX'); } catch {}
+      // p.ej.: await voice?.start?.('es-MX');
 
-      // Obtiene coordenadas si hay permisos
       const coords = await getCoords();
-      if (coords) {
-        console.debug('EMERGENCY coords:', coords);
-      }
+      console.debug('EMERGENCY coords:', coords);
 
-      // Intenta WhatsApp y luego llamada
       const waOk = await sendWhatsApp();
       const callOk = await callPhone();
 
       if (!waOk && !callOk) {
-        Alert.alert(
-          'Emergencia',
-          'No se pudo abrir WhatsApp ni realizar la llamada automáticamente.'
-        );
+        Alert.alert('Emergencia', 'No se pudo abrir WhatsApp ni llamar automáticamente.');
       }
 
       if (testMode) {
-        Alert.alert(
-          'Modo Prueba',
-          'Se simuló la emergencia (no se enviaron acciones reales).'
-        );
+        Alert.alert('Modo Prueba', 'Se simuló la emergencia (no se enviaron mensajes reales).');
       }
     } catch (e) {
       console.debug('triggerEmergency error:', e?.message || e);
     } finally {
-      // corta/descarga cualquier sonido tras unos segundos
       setTimeout(stopSound, 5000);
     }
-  }, [
-    ensureAudioMode,
-    alertSound,
-    tickSound,
-    sendWhatsApp,
-    callPhone,
-    getCoords,
-    playSound,
-    stopSound,
-    testMode,
-  ]);
+  }, [alertSound, tickSound, sendWhatsApp, callPhone, getCoords, playSound, stopSound, testMode]);
 
   return { triggerEmergency };
 }
