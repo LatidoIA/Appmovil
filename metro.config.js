@@ -5,12 +5,12 @@ const path = require('path');
 const config = getDefaultConfig(__dirname);
 const shim = path.resolve(__dirname, 'shim-empty.js');
 
-// ✅ agregar .wav si no estuviera
+// + .wav
 config.resolver.assetExts = Array.from(
   new Set([...(config.resolver.assetExts || []), 'wav'])
 );
 
-// ✅ mantener tus shims y bloqueos
+// shims y bloqueos
 config.resolver = {
   ...(config.resolver || {}),
   blockList: exclusionList([/node_modules\/@expo\/config-plugins\/.*/]),
@@ -24,8 +24,8 @@ config.resolver = {
     'node:os': shim,
     '@expo/config-plugins': shim,
     '@expo/prebuild-config': shim,
-    'expo/config': shim
-  }
+    'expo/config': shim,
+  },
 };
 
 module.exports = config;
