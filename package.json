@@ -34,10 +34,10 @@
     "react-native-svg": "15.3.0",
 
     "@expo/vector-icons": "^14.0.4",
-    "expo-build-properties": "~0.14.8"
+    "expo-build-properties": "~0.14.8",
+
+    "babel-preset-expo": "^11.0.0",
+    "@babel/core": "^7.25.0"
   },
-  "devDependencies": {
-    "@babel/core": "^7.25.0",
-    "babel-preset-expo": "^11.0.0"
-  }
+  "devDependencies": {}
 }
