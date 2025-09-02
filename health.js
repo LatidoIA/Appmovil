@@ -1,5 +1,15 @@
 import { Platform, Linking } from 'react-native';
-import * as HC from 'react-native-health-connect';
+import {
+  initialize,
+  SdkAvailabilityStatus,
+  getSdkStatus,
+  requestPermission,
+  getGrantedPermissions,
+  readRecords,
+  aggregateRecord,
+  openHealthConnectSettings,
+  openHealthConnectDataManagement,
+} from 'react-native-health-connect';
 
 // ---- Tipos HC que usamos ----
 const RT_STEPS = 'Steps';
@@ -15,41 +25,33 @@ const PERMS = [
   { accessType: 'read', recordType: RT_SLEEP },
 ];
 
-// Wrappers seguros (si el módulo está “vacío”, proveemos no-ops)
-const initialize = HC?.initialize ?? (async () => {});
-const getSdkStatus = HC?.getSdkStatus ?? (async () => -1);
-const SdkAvailabilityStatus = HC?.SdkAvailabilityStatus ?? {
-  SDK_AVAILABLE: 1,
-  SDK_UNAVAILABLE: 0,
-  SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED: 2,
-  SDK_UNAVAILABLE_PROVIDER_DISABLED: 3,
-  SDK_UNAVAILABLE_PROVIDER_NOT_INSTALLED: 4,
-};
-const requestPermission = HC?.requestPermission ?? (async () => {});
-const getGrantedPermissions = HC?.getGrantedPermissions ?? (async () => []);
-const readRecords = HC?.readRecords ?? (async () => ({ records: [] }));
-const aggregateRecord = HC?.aggregateRecord ?? (async () => ({}));
-const openHealthConnectSettings = HC?.openHealthConnectSettings ?? (async () => {});
-const openHealthConnectDataManagement = HC?.openHealthConnectDataManagement ?? (async () => {});
+// === Detección suave de SDK disponible (cuando Metro lo stubea, todo es undefined) ===
+function hcAvailable() {
+  return (
+    typeof initialize === 'function' &&
+    typeof getSdkStatus === 'function' &&
+    typeof requestPermission === 'function'
+  );
+}
 
 // ---- Init único ----
 let _inited = false;
 async function ensureInit() {
   if (_inited) return;
-  await initialize(); // idempotente (o no-op)
+  if (Platform.OS !== 'android') { _inited = true; return; }
+  if (!hcAvailable()) { _inited = true; return; } // sin SDK real, no hacer nada
+  await initialize(); // idempotente
   _inited = true;
 }
 
 // ---- Utils ----
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 function startOfTodayIso() {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return start.toISOString();
 }
-function uniq(arr) {
-  return Array.from(new Set((arr || []).filter(Boolean)));
-}
+function uniq(arr) { return Array.from(new Set((arr || []).filter(Boolean))); }
 function overlapMs(aStartIso, aEndIso, bStartIso, bEndIso) {
   const a0 = new Date(aStartIso).getTime();
   const a1 = new Date(aEndIso).getTime();
@@ -62,17 +64,18 @@ function overlapMs(aStartIso, aEndIso, bStartIso, bEndIso) {
 
 // ---- Estado SDK / Settings ----
 const statusLabel = {
-  [SdkAvailabilityStatus.SDK_AVAILABLE]: 'SDK_AVAILABLE',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED]: 'PROVIDER_UPDATE_REQUIRED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_DISABLED]: 'PROVIDER_DISABLED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE_PROVIDER_NOT_INSTALLED]: 'PROVIDER_NOT_INSTALLED',
-  [SdkAvailabilityStatus.SDK_UNAVAILABLE]: 'SDK_UNAVAILABLE',
+  [SdkAvailabilityStatus?.SDK_AVAILABLE]: 'SDK_AVAILABLE',
+  [SdkAvailabilityStatus?.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED]: 'PROVIDER_UPDATE_REQUIRED',
+  [SdkAvailabilityStatus?.SDK_UNAVAILABLE_PROVIDER_DISABLED]: 'PROVIDER_DISABLED',
+  [SdkAvailabilityStatus?.SDK_UNAVAILABLE_PROVIDER_NOT_INSTALLED]: 'PROVIDER_NOT_INSTALLED',
+  [SdkAvailabilityStatus?.SDK_UNAVAILABLE]: 'SDK_UNAVAILABLE',
 };
 
 export async function hcGetStatusDebug() {
   if (Platform.OS !== 'android') return { status: -1, label: 'NOT_ANDROID' };
   try {
     await ensureInit();
+    if (!hcAvailable()) return { status: -3, label: 'HC_STUBBED' };
     const s = await getSdkStatus();
     return { status: s, label: statusLabel[s] ?? String(s) };
   } catch {
@@ -83,10 +86,8 @@ export async function hcGetStatusDebug() {
 export async function hcOpenSettings() {
   if (Platform.OS !== 'android') return false;
   await ensureInit();
-  try {
-    await openHealthConnectSettings();
-    return true;
-  } catch {}
+  if (!hcAvailable()) return false;
+  try { await openHealthConnectSettings(); return true; } catch {}
   try {
     if (typeof openHealthConnectDataManagement === 'function') {
       await openHealthConnectDataManagement();
@@ -94,31 +95,26 @@ export async function hcOpenSettings() {
     }
   } catch {}
   const pkg = 'com.google.android.apps.healthdata';
-  try {
-    await Linking.openURL(`market://details?id=${pkg}`);
-    return true;
-  } catch {}
-  try {
-    await Linking.openURL(`https://play.google.com/store/apps/details?id=${pkg}`);
-    return true;
-  } catch {}
+  try { await Linking.openURL(`market://details?id=${pkg}`); return true; } catch {}
+  try { await Linking.openURL(`https://play.google.com/store/apps/details?id=${pkg}`); return true; } catch {}
   return false;
 }
 
-// ---- Permisos ----
+// ---- Permisos (vía getGrantedPermissions) ----
 export async function getGrantedList() {
   if (Platform.OS !== 'android') return [];
   await ensureInit();
+  if (!hcAvailable()) return [];
   try {
     const list = await getGrantedPermissions();
-    return (list || []).map((p) => `${p.recordType}:${p.accessType}`);
+    return (list || []).map(p => `${p.recordType}:${p.accessType}`);
   } catch {
     return [];
   }
 }
 export function areAllGranted(grantedList) {
-  const need = PERMS.map((p) => `${p.recordType}:${p.accessType}`);
-  return need.every((x) => grantedList.includes(x));
+  const need = PERMS.map(p => `${p.recordType}:${p.accessType}`);
+  return need.every(x => grantedList.includes(x));
 }
 export async function hasAllPermissions() {
   const grantedList = await getGrantedList();
@@ -127,9 +123,8 @@ export async function hasAllPermissions() {
 export async function requestAllPermissions() {
   if (Platform.OS !== 'android') return false;
   await ensureInit();
-  try {
-    await requestPermission(PERMS);
-  } catch {}
+  if (!hcAvailable()) return false;
+  try { await requestPermission(PERMS); } catch {}
   for (let i = 0; i < 3; i++) {
     const ok = await hasAllPermissions();
     if (ok) return true;
@@ -141,11 +136,10 @@ export async function quickSetup() {
   if (Platform.OS !== 'android') return false;
   try {
     await ensureInit();
+    if (!hcAvailable()) return false;
     const s = await getSdkStatus();
     if (s !== SdkAvailabilityStatus.SDK_AVAILABLE) {
-      try {
-        await openHealthConnectSettings();
-      } catch {}
+      try { await openHealthConnectSettings(); } catch {}
       return false;
     }
     const ok = await requestAllPermissions();
@@ -157,11 +151,10 @@ export async function quickSetup() {
 
 // ---- Lecturas ----
 export async function readTodaySteps() {
-  if (Platform.OS !== 'android') return { steps: 0, source: 'na', origins: [], asOf: null };
+  if (Platform.OS !== 'android' || !hcAvailable()) return { steps: 0, source: 'na', origins: [], asOf: null };
   await ensureInit();
   const start = startOfTodayIso();
   const end = new Date().toISOString();
-
   try {
     const agg = await aggregateRecord({
       recordType: RT_STEPS,
@@ -169,8 +162,8 @@ export async function readTodaySteps() {
     });
     const steps = agg?.count ?? agg?.countTotal ?? agg?.steps ?? null;
     if (typeof steps === 'number') {
-      const originsFromAgg = (agg?.dataOrigins || agg?.dataOrigin || []).map(
-        (o) => o?.packageName ?? o?.package ?? o
+      const originsFromAgg = (agg?.dataOrigins || agg?.dataOrigin || []).map(o =>
+        o?.packageName ?? o?.package ?? o
       );
       return { steps, source: 'aggregate', origins: uniq(originsFromAgg), asOf: end };
     }
@@ -185,12 +178,11 @@ export async function readTodaySteps() {
     const origins = [];
     let latestTs = null;
     for (const r of records) {
-      total += r?.count ?? r?.steps ?? 0;
+      total += (r?.count ?? r?.steps ?? 0);
       const pkg =
         r?.metadata?.dataOrigin?.packageName ??
         r?.metadata?.dataOrigin?.package ??
-        r?.metadata?.dataOrigin ??
-        null;
+        r?.metadata?.dataOrigin ?? null;
       if (pkg) origins.push(pkg);
       const t = r?.endTime ?? r?.startTime ?? null;
       if (t && (!latestTs || new Date(t).getTime() > new Date(latestTs).getTime())) latestTs = t;
@@ -202,7 +194,7 @@ export async function readTodaySteps() {
 }
 
 export async function readLatestHeartRate() {
-  if (Platform.OS !== 'android') return { bpm: null, at: null, origin: null };
+  if (Platform.OS !== 'android' || !hcAvailable()) return { bpm: null, at: null, origin: null };
   await ensureInit();
   try {
     const end = new Date();
@@ -212,36 +204,23 @@ export async function readLatestHeartRate() {
       ascendingOrder: false,
       pageSize: 100,
     });
-
-    let best = { bpm: null, at: null, origin: null },
-      bestTs = 0;
+    let best = { bpm: null, at: null, origin: null }, bestTs = 0;
     for (const rec of records) {
       const origin =
         rec?.metadata?.dataOrigin?.packageName ??
         rec?.metadata?.dataOrigin?.package ??
-        rec?.metadata?.dataOrigin ??
-        null;
-
+        rec?.metadata?.dataOrigin ?? null;
       if (Array.isArray(rec?.samples) && rec.samples.length) {
         for (const s of rec.samples) {
           const ts = s?.time ? new Date(s.time).getTime() : 0;
           const val = s?.beatsPerMinute ?? s?.bpm ?? null;
-          if (val != null && ts > bestTs) {
-            bestTs = ts;
-            best = { bpm: val, at: s.time, origin };
-          }
+          if (val != null && ts > bestTs) { bestTs = ts; best = { bpm: val, at: s.time, origin }; }
         }
       } else {
-        const ts = rec?.endTime
-          ? new Date(rec.endTime).getTime()
-          : rec?.startTime
-          ? new Date(rec.startTime).getTime()
-          : 0;
+        const ts = rec?.endTime ? new Date(rec.endTime).getTime()
+                : rec?.startTime ? new Date(rec.startTime).getTime() : 0;
         const val = rec?.beatsPerMinute ?? rec?.bpm ?? null;
-        if (val != null && ts > bestTs) {
-          bestTs = ts;
-          best = { bpm: val, at: rec?.endTime ?? rec?.startTime ?? null, origin };
-        }
+        if (val != null && ts > bestTs) { bestTs = ts; best = { bpm: val, at: rec?.endTime ?? rec?.startTime ?? null, origin }; }
       }
     }
     return best;
@@ -251,7 +230,7 @@ export async function readLatestHeartRate() {
 }
 
 export async function readLatestSpO2() {
-  if (Platform.OS !== 'android') return { spo2: null, at: null, origin: null };
+  if (Platform.OS !== 'android' || !hcAvailable()) return { spo2: null, at: null, origin: null };
   await ensureInit();
   try {
     const end = new Date();
@@ -261,38 +240,24 @@ export async function readLatestSpO2() {
       ascendingOrder: false,
       pageSize: 100,
     });
-
-    let best = { spo2: null, at: null, origin: null },
-      bestTs = 0;
+    let best = { spo2: null, at: null, origin: null }, bestTs = 0;
     for (const rec of records) {
       const origin =
         rec?.metadata?.dataOrigin?.packageName ??
         rec?.metadata?.dataOrigin?.package ??
-        rec?.metadata?.dataOrigin ??
-        null;
-
+        rec?.metadata?.dataOrigin ?? null;
       if (Array.isArray(rec?.samples) && rec.samples.length) {
         for (const s of rec.samples) {
           const ts = s?.time ? new Date(s.time).getTime() : 0;
           const val = s?.percentage ?? s?.oxygenSaturation ?? s?.value ?? null;
-          if (val != null && ts > bestTs) {
-            bestTs = ts;
-            best = { spo2: val, at: s.time, origin };
-          }
+          if (val != null && ts > bestTs) { bestTs = ts; best = { spo2: val, at: s.time, origin }; }
         }
       } else {
-        const ts = rec?.time
-          ? new Date(rec.time).getTime()
-          : rec?.endTime
-          ? new Date(rec.endTime).getTime()
-          : rec?.startTime
-          ? new Date(rec.startTime).getTime()
-          : 0;
+        const ts = rec?.time ? new Date(rec.time).getTime()
+                : rec?.endTime ? new Date(rec.endTime).getTime()
+                : rec?.startTime ? new Date(rec.startTime).getTime() : 0;
         const val = rec?.percentage ?? rec?.oxygenSaturation ?? rec?.value ?? null;
-        if (val != null && ts > bestTs) {
-          bestTs = ts;
-          best = { spo2: val, at: rec?.time ?? rec?.endTime ?? rec?.startTime ?? null, origin };
-        }
+        if (val != null && ts > bestTs) { bestTs = ts; best = { spo2: val, at: rec?.time ?? rec?.endTime ?? rec?.startTime ?? null, origin }; }
       }
     }
     return best;
@@ -302,7 +267,7 @@ export async function readLatestSpO2() {
 }
 
 export async function readSleepLast24h() {
-  if (Platform.OS !== 'android') return { hours: null, origins: [], rangeEnd: null };
+  if (Platform.OS !== 'android' || !hcAvailable()) return { hours: null, origins: [], rangeEnd: null };
   await ensureInit();
   try {
     const end = new Date();
@@ -312,7 +277,6 @@ export async function readSleepLast24h() {
       ascendingOrder: false,
       pageSize: 200,
     });
-
     let totalMs = 0;
     const origins = [];
     for (const r of records) {
@@ -321,8 +285,7 @@ export async function readSleepLast24h() {
       const pkg =
         r?.metadata?.dataOrigin?.packageName ??
         r?.metadata?.dataOrigin?.package ??
-        r?.metadata?.dataOrigin ??
-        null;
+        r?.metadata?.dataOrigin ?? null;
       if (pkg) origins.push(pkg);
     }
     const hours = totalMs ? Number((totalMs / 3600000).toFixed(1)) : null;
@@ -331,4 +294,3 @@ export async function readSleepLast24h() {
     return { hours: null, origins: [], rangeEnd: null };
   }
 }
-
