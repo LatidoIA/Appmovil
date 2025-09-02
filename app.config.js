@@ -1,11 +1,8 @@
-// app.config.js
 const {
   withProjectBuildGradle,
   withAndroidManifest,
-  withAppBuildGradle,
 } = require('@expo/config-plugins');
 
-// 1) Excluye libs legacy com.android.support (evita choques con AndroidX)
 const withStripLegacySupport = (config) =>
   withProjectBuildGradle(config, (cfg) => {
     if (cfg.modResults.language !== 'groovy') return cfg;
@@ -15,7 +12,6 @@ const withStripLegacySupport = (config) =>
 ${marker}
 subprojects {
   project.configurations.all {
-    // elimina completamente libs legacy de support 28.x
     exclude group: 'com.android.support'
   }
 }
@@ -24,7 +20,6 @@ subprojects {
     return cfg;
   });
 
-// 2) Fija appComponentFactory y añade tools:replace
 const withFixAppComponentFactory = (config) =>
   withAndroidManifest(config, (cfg) => {
     const manifest = cfg.modResults.manifest;
@@ -46,19 +41,6 @@ const withFixAppComponentFactory = (config) =>
     return cfg;
   });
 
-// 3) Quita línea obsoleta "enableBundleCompression" del build.gradle (RN 0.76+)
-const withStripEnableBundleCompression = (config) =>
-  withAppBuildGradle(config, (cfg) => {
-    const mod = cfg.modResults;
-    if (mod.language !== 'groovy') return cfg;
-    const marker = '/* ⛳ strip-enableBundleCompression */';
-    if (!mod.contents.includes(marker)) {
-      mod.contents = mod.contents.replace(/^\s*enableBundleCompression\s*=\s*.*\n/gm, '');
-      mod.contents += `\n${marker}\n`;
-    }
-    return cfg;
-  });
-
 module.exports = () => ({
   expo: {
     name: 'Latido',
@@ -66,10 +48,7 @@ module.exports = () => ({
     version: '1.0.0',
     sdkVersion: '53.0.0',
     platforms: ['ios', 'android'],
-
-    // requerido por expo-auth-session para el redirect
     scheme: 'latido',
-
     android: {
       package: 'com.latido.app',
       permissions: [
@@ -80,12 +59,12 @@ module.exports = () => ({
         'android.permission.ACCESS_FINE_LOCATION',
         'android.permission.BODY_SENSORS',
         'android.permission.ACTIVITY_RECOGNITION',
-        'android.permission.POST_NOTIFICATIONS'
+        'android.permission.POST_NOTIFICATIONS',
+        'android.permission.health.READ_STEPS',
+        'android.permission.health.READ_HEART_RATE'
       ]
     },
-
     plugins: [
-      // Propiedades de build (SDKs/Gradle/Kotlin)
       [
         'expo-build-properties',
         {
@@ -101,21 +80,14 @@ module.exports = () => ({
           }
         }
       ],
-
-      // Parches nativos
       withStripLegacySupport,
-      withFixAppComponentFactory,
-      withStripEnableBundleCompression
+      withFixAppComponentFactory
+      // ⛔️ 'expo-health-connect' lo reactivamos más adelante con su paquete instalado
     ],
-
     extra: {
       eas: {
         projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f'
       }
-    },
-
-    cli: {
-      appVersionSource: 'remote'
     }
   }
 });
