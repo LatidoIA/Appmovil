@@ -5,6 +5,8 @@ const path = require('path');
 const config = getDefaultConfig(__dirname);
 const shim = path.resolve(__dirname, 'shim-empty.js');
 
+const shouldStubHC = process.env.STUB_HEALTH_CONNECT !== '0';
+
 // + .wav
 config.resolver.assetExts = Array.from(
   new Set([...(config.resolver.assetExts || []), 'wav'])
@@ -25,6 +27,12 @@ config.resolver = {
     '@expo/config-plugins': shim,
     '@expo/prebuild-config': shim,
     'expo/config': shim,
+    ...(shouldStubHC
+      ? {
+          'react-native-health-connect': shim,
+          'expo-health-connect': shim,
+        }
+      : {}),
   },
 };
 
