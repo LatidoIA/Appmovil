@@ -10,20 +10,26 @@ jobs:
   build-android:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node (SDK53 recommends Node 20+)
+      - name: Setup Node (SDK53 recomienda Node 20+)
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
       - name: Show Node/npm versions
         run: |
           node -v
           npm -v
           npm config list
+
+      # (Opcional) Evita mirrors raros que dieron ETARGET con @babel/core
+      - name: Force npm registry to public npmjs
+        run: npm config set registry https://registry.npmjs.org/
 
       - name: Install dependencies
         run: |
@@ -34,6 +40,18 @@ jobs:
             echo "Sin lockfile -> npm i (fallback)"
             npm i --no-audit --no-fund --legacy-peer-deps
           fi
+
+      # 🔧 Hotfix CI: inyecta dev-deps mínimas sin tocar tu package.json
+      # - Evita el "Cannot find module 'babel-preset-expo'"
+      # - Evita el ETARGET de @babel/core 7.25.x que viste
+      - name: Ensure Babel preset & core (CI-only)
+        run: |
+          set -e
+          # Instala preset compatible con SDK 53 y un core estable 7.24.x
+          npm i -D --no-save babel-preset-expo@^11.0.0 @babel/core@^7.24.0
+          # Debug rápido
+          node -e "console.log('babel-preset-expo:', require('babel-preset-expo/package.json').version)"
+          node -e "console.log('@babel/core:', require('@babel/core/package.json').version)"
 
       - name: EAS CLI version
         run: npx --yes eas-cli@latest --version
@@ -57,6 +75,10 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      # (Opcional, pero útil) Diagnóstico mínimo de Expo Doctor
+      - name: Expo Doctor (diagnostic)
+        run: npx --yes expo-doctor || true
 
       - name: Build Android (production, local creds)
         env:
