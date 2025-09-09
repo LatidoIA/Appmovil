@@ -3,28 +3,36 @@ import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import { Ionicons } from '@expo/vector-icons';
-
-// Si usas un <Text/> personalizado cámbialo aquí:
 import CustomText from '../CustomText';
 import theme from '../theme';
+import { useAuth } from './AuthContext';
 
 WebBrowser.maybeCompleteAuthSession();
 
-export default function AuthScreen({ onSignedIn }) {
+export default function AuthScreen() {
+  const { signInWithGoogleResult } = useAuth();
+
   const [request, response, promptAsync] = Google.useAuthRequest({
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-    // Opcional: redirectUri: makeRedirectUri({ scheme: 'latido' }),
+    iosClientId:     process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+    webClientId:     process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
     scopes: ['profile', 'email'],
   });
 
   useEffect(() => {
-    if (response?.type === 'success' && response.authentication?.accessToken) {
-      // Aquí puedes llamar tu backend o fetch de Google profile
-      onSignedIn?.(response.authentication);
-    }
-  }, [response, onSignedIn]);
+    (async () => {
+      if (response?.type !== 'success') return;
+      const accessToken = response.authentication?.accessToken;
+      if (!accessToken) return;
+
+      // Perfil básico de Google
+      const res = await fetch('https://www.googleapis.com/userinfo/v2/me', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const info = await res.json();
+      await signInWithGoogleResult({ idToken: null, info });
+    })();
+  }, [response, signInWithGoogleResult]);
 
   return (
     <View style={styles.container}>
@@ -50,7 +58,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    elevation: 3,
+    elevation: 3
   },
   btnDisabled: { opacity: 0.5 },
   btnText: { fontSize: 16, color: theme?.colors?.text ?? '#111' }
