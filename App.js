@@ -23,8 +23,6 @@ import { AuthProvider } from './auth/AuthContext';
 import AuthGate from './auth/AuthGate';
 import { useEmergency } from './useEmergency';
 
-try { SplashScreen.preventAutoHideAsync(); } catch {}
-
 const SETTINGS_KEY = '@latido_settings';
 const STREAK_CNT  = '@streak_count';
 const STREAK_LAST = '@streak_last_open';
