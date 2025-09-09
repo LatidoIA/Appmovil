@@ -7,10 +7,11 @@ module.exports = () => ({
     scheme: 'latido',
     platforms: ['ios', 'android'],
     orientation: 'portrait',
-    icon: './assets/icon.png',
+    // 👇 Rutas corregidas (archivos están en la raíz del repo)
+    icon: './icon.png',
     userInterfaceStyle: 'light',
     splash: {
-      image: './assets/splash.png',
+      image: './splash.png',
       resizeMode: 'contain',
       backgroundColor: '#ffffff'
     },
