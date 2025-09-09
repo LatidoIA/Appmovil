@@ -1,4 +1,5 @@
 // App.js
+import 'react-native-gesture-handler';
 import React, { useEffect } from 'react';
 import { View, TouchableOpacity, Platform } from 'react-native';
 import {
@@ -19,8 +20,20 @@ import CustomText from './CustomText';
 import theme from './theme';
 import CrashCatcher from './CrashCatcher';
 
-import { AuthProvider } from './auth/AuthContext';
-import AuthGate from './auth/AuthGate';
+// 🔒 Auth (opcional, pero no bloquea render)
+import { AuthProvider, useAuth } from './auth/AuthContext';
+import AuthScreen from './auth/AuthScreen';
+
+// ✅ Importes ESTÁTICOS (no lazy)
+import SaludScreen from './SaludScreen';
+import LatidoScreen from './LatidoScreen';
+import HistoryScreen from './HistoryScreen';
+import CuidadoPersonalScreen from './CuidadoPersonalScreen';
+import ProfileScreen from './ProfileScreen';
+import StreakScreen from './StreakScreen';
+import SettingsScreen from './SettingsScreen';
+import MedicationsScreen from './MedicationsScreen';
+
 import { useEmergency } from './useEmergency';
 
 // NO llamar preventAutoHideAsync
@@ -46,29 +59,6 @@ function daysBetweenUTC(aStr, bStr) {
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
-
-function lazyScreen(loader) {
-  return function Lazy(props) {
-    const [C, setC] = React.useState(null);
-    useEffect(() => {
-      let alive = true;
-      loader().then(m => { if (alive) setC(() => m.default || m); })
-              .catch(e => console.debug('Lazy load error:', e?.message || e));
-      return () => { alive = false; };
-    }, []);
-    if (!C) return null;
-    return <C {...props} />;
-  };
-}
-
-const SaludScreenLazy           = lazyScreen(() => import('./SaludScreen'));
-const LatidoScreenLazy          = lazyScreen(() => import('./LatidoScreen'));
-const HistoryScreenLazy         = lazyScreen(() => import('./HistoryScreen'));
-const CuidadoPersonalScreenLazy = lazyScreen(() => import('./CuidadoPersonalScreen'));
-const ProfileScreenLazy         = lazyScreen(() => import('./ProfileScreen'));
-const StreakScreenLazy          = lazyScreen(() => import('./StreakScreen'));
-const SettingsScreenLazy        = lazyScreen(() => import('./SettingsScreen'));
-const MedicationsScreenLazy     = lazyScreen(() => import('./MedicationsScreen'));
 
 async function setupNotificationsDeferred() {
   try {
@@ -188,13 +178,43 @@ function MainTabs() {
         },
         tabBarStyle: { backgroundColor: theme.colors.surface },
       })}
-      lazy
+      lazy={false} // 👈 sin lazy para evitar pantallas en blanco
     >
-      <Tab.Screen name="Salud"     component={SaludScreenLazy}           options={{ tabBarLabel: 'Salud' }} />
-      <Tab.Screen name="Examen"    component={LatidoScreenLazy}          options={{ tabBarLabel: 'Examen' }} />
-      <Tab.Screen name="Historial" component={HistoryScreenLazy}         options={{ tabBarLabel: 'Historial' }} />
-      <Tab.Screen name="Cuidado"   component={CuidadoPersonalScreenLazy} options={{ tabBarLabel: 'Cuidado' }} />
+      <Tab.Screen name="Salud"     component={SaludScreen}           options={{ tabBarLabel: 'Salud' }} />
+      <Tab.Screen name="Examen"    component={LatidoScreen}          options={{ tabBarLabel: 'Examen' }} />
+      <Tab.Screen name="Historial" component={HistoryScreen}         options={{ tabBarLabel: 'Historial' }} />
+      <Tab.Screen name="Cuidado"   component={CuidadoPersonalScreen} options={{ tabBarLabel: 'Cuidado' }} />
     </Tab.Navigator>
+  );
+}
+
+/** Pantalla de entrada: login Google o saltar */
+function EntryScreen({ navigation }) {
+  const { signInWithGoogleResult } = useAuth();
+
+  return (
+    <View style={{ flex:1, backgroundColor: theme.colors.background, alignItems:'center', justifyContent:'center', padding:24 }}>
+      <CustomText style={{ color: theme.colors.textPrimary, fontSize: 22, marginBottom: 16 }}>
+        Bienvenido a Latido
+      </CustomText>
+
+      {/* Botón Google (usa tu AuthScreen existente) */}
+      <View style={{ width:'100%', maxWidth:320, marginBottom: 10 }}>
+        <AuthScreen onSignedIn={(auth) => {
+          // si quieres, aquí podrías pedir perfil a Google y llamar signInWithGoogleResult
+          signInWithGoogleResult({ idToken: auth?.idToken, info: {} }).catch(()=>{});
+          navigation.replace('Main');
+        }} />
+      </View>
+
+      {/* Saltar login */}
+      <TouchableOpacity
+        onPress={() => navigation.replace('Main')}
+        style={{ marginTop: 8, paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10, backgroundColor: theme.colors.surface }}
+      >
+        <CustomText style={{ color: theme.colors.textPrimary }}>Continuar sin cuenta</CustomText>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -269,19 +289,18 @@ export default function App() {
 
   return (
     <AuthProvider>
-      {/* CrashCatcher POR FUERA del gate para atrapar errores tempranos */}
       <CrashCatcher>
-        <AuthGate>
-          <NavigationContainer theme={navTheme}>
-            <Stack.Navigator screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="Main"        component={MainTabs} />
-              <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
-              <Stack.Screen name="Streak"      component={StreakScreenLazy} />
-              <Stack.Screen name="Settings"    component={SettingsScreenLazy} />
-              <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
-            </Stack.Navigator>
-          </NavigationContainer>
-        </AuthGate>
+        <NavigationContainer theme={navTheme}>
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            {/* 👇 Arranca en entrada (login / saltar) */}
+            <Stack.Screen name="Entry"       component={EntryScreen} />
+            <Stack.Screen name="Main"        component={MainTabs} />
+            <Stack.Screen name="Profile"     component={ProfileScreen} />
+            <Stack.Screen name="Streak"      component={StreakScreen} />
+            <Stack.Screen name="Settings"    component={SettingsScreen} />
+            <Stack.Screen name="Medications" component={MedicationsScreen} />
+          </Stack.Navigator>
+        </NavigationContainer>
       </CrashCatcher>
     </AuthProvider>
   );
