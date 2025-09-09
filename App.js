@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { View, TouchableOpacity, LogBox, Platform } from 'react-native';
+// App.js
+import React, { useEffect } from 'react';
+import { View, TouchableOpacity, Platform } from 'react-native';
 import {
   useFonts,
   Montserrat_400Regular,
@@ -13,18 +14,14 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
+
 import CustomText from './CustomText';
 import theme from './theme';
+import CrashCatcher from './CrashCatcher';
+
 import { AuthProvider } from './auth/AuthContext';
 import AuthGate from './auth/AuthGate';
-
-try { const crash = require('./crash'); crash?.install?.(); } catch {}
-
-LogBox.ignoreLogs([
-  '[expo-av]: Expo AV has been deprecated',
-  '`expo-notifications` functionality is not fully supported in Expo Go',
-  'Cannot read property \'startSpeech\' of null'
-]);
+import { useEmergency } from './useEmergency';
 
 try { SplashScreen.preventAutoHideAsync(); } catch {}
 
@@ -55,8 +52,9 @@ function lazyScreen(loader) {
     const [C, setC] = React.useState(null);
     useEffect(() => {
       let alive = true;
-      loader().then(m => { if (alive) setC(() => m.default || m); })
-              .catch(e => console.debug('Lazy load error:', e?.message || e));
+      loader()
+        .then(m => { if (alive) setC(() => m.default || m); })
+        .catch(e => console.debug('Lazy load error:', e?.message || e));
       return () => { alive = false; };
     }, []);
     if (!C) return null;
@@ -72,8 +70,6 @@ const ProfileScreenLazy         = lazyScreen(() => import('./ProfileScreen'));
 const StreakScreenLazy          = lazyScreen(() => import('./StreakScreen'));
 const SettingsScreenLazy        = lazyScreen(() => import('./SettingsScreen'));
 const MedicationsScreenLazy     = lazyScreen(() => import('./MedicationsScreen'));
-
-import { useEmergency } from './useEmergency';
 
 async function setupNotificationsDeferred() {
   try {
@@ -204,16 +200,30 @@ function MainTabs() {
 }
 
 export default function App() {
-  const [fontsLoaded] = useFonts({ Montserrat_400Regular, Montserrat_500Medium, Montserrat_700Bold });
+  const [fontsLoaded] = useFonts({
+    Montserrat_400Regular,
+    Montserrat_500Medium,
+    Montserrat_700Bold
+  });
 
+  // Fallback: oculta el splash aunque las fuentes fallen/carguen lento
   useEffect(() => {
-    if (fontsLoaded) {
-      SplashScreen.hideAsync().catch(() => {});
-      const t = setTimeout(() => { setupNotificationsDeferred(); }, 1200);
-      return () => clearTimeout(t);
-    }
+    const t = setTimeout(() => { SplashScreen.hideAsync().catch(() => {}); }, 3000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Si las fuentes cargan, oculta el splash inmediatamente
+  useEffect(() => {
+    if (fontsLoaded) SplashScreen.hideAsync().catch(() => {});
   }, [fontsLoaded]);
 
+  // Inicializa notificaciones diferidas
+  useEffect(() => {
+    const t = setTimeout(() => { setupNotificationsDeferred(); }, 1200);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Lógica de streak
   useEffect(() => {
     (async () => {
       const today = dateOnlyStr(new Date());
@@ -247,8 +257,6 @@ export default function App() {
     })();
   }, []);
 
-  if (!fontsLoaded) return null;
-
   const navTheme = {
     ...DefaultTheme,
     colors: {
@@ -263,15 +271,17 @@ export default function App() {
   return (
     <AuthProvider>
       <AuthGate>
-        <NavigationContainer theme={navTheme}>
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="Main"        component={MainTabs} />
-            <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
-            <Stack.Screen name="Streak"      component={StreakScreenLazy} />
-            <Stack.Screen name="Settings"    component={SettingsScreenLazy} />
-            <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
-          </Stack.Navigator>
-        </NavigationContainer>
+        <CrashCatcher>
+          <NavigationContainer theme={navTheme}>
+            <Stack.Navigator screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="Main"        component={MainTabs} />
+              <Stack.Screen name="Profile"     component={ProfileScreenLazy} />
+              <Stack.Screen name="Streak"      component={StreakScreenLazy} />
+              <Stack.Screen name="Settings"    component={SettingsScreenLazy} />
+              <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
+            </Stack.Navigator>
+          </NavigationContainer>
+        </CrashCatcher>
       </AuthGate>
     </AuthProvider>
   );
