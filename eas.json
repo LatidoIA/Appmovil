@@ -1,14 +1,11 @@
 {
-  "cli": {
-    "version": ">= 11.0.0",
-    "appVersionSource": "remote"
-  },
+  "cli": { "version": ">= 11.0.0", "appVersionSource": "remote" },
   "build": {
     "production": {
-      "android": {
-        "buildType": "app-bundle",
-        "credentialsSource": "local"
-      }
+      "android": { "buildType": "app-bundle", "credentialsSource": "local" }
+    },
+    "apk": {
+      "android": { "buildType": "apk", "credentialsSource": "local" }
     }
   }
 }
