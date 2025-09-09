@@ -78,4 +78,4 @@ jobs:
           EAS_NON_INTERACTIVE: "1"
           EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
           EAS_ACCESS_TOKEN: ${{ secrets.EAS_TOKEN }}
-        run: npx --yes eas-cli@latest build --platform android --profile production --non-interactive
+        run: npx --yes eas-cli@latest build --platform android --profile apk --non-interactive
