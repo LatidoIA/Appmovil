@@ -23,6 +23,8 @@ import { AuthProvider } from './auth/AuthContext';
 import AuthGate from './auth/AuthGate';
 import { useEmergency } from './useEmergency';
 
+// NO llamar preventAutoHideAsync
+
 const SETTINGS_KEY = '@latido_settings';
 const STREAK_CNT  = '@streak_count';
 const STREAK_LAST = '@streak_last_open';
@@ -50,9 +52,8 @@ function lazyScreen(loader) {
     const [C, setC] = React.useState(null);
     useEffect(() => {
       let alive = true;
-      loader()
-        .then(m => { if (alive) setC(() => m.default || m); })
-        .catch(e => console.debug('Lazy load error:', e?.message || e));
+      loader().then(m => { if (alive) setC(() => m.default || m); })
+              .catch(e => console.debug('Lazy load error:', e?.message || e));
       return () => { alive = false; };
     }, []);
     if (!C) return null;
@@ -88,7 +89,7 @@ async function setupNotificationsDeferred() {
       });
     } else {
       const { status } = await Notifications.requestPermissionsAsync();
-      if (status !== 'granted') console.debug('Notifs: permiso iOS no concedido');
+      if (status !== 'granted') console.debug('Notifs iOS no concedido');
     }
   } catch (e) {
     console.debug('setupNotifications error:', e?.message || e);
@@ -204,24 +205,24 @@ export default function App() {
     Montserrat_700Bold
   });
 
-  // Fallback: oculta el splash aunque las fuentes fallen/carguen lento
+  // Oculta el splash sí o sí a los 3s
   useEffect(() => {
     const t = setTimeout(() => { SplashScreen.hideAsync().catch(() => {}); }, 3000);
     return () => clearTimeout(t);
   }, []);
 
-  // Si las fuentes cargan, oculta el splash inmediatamente
+  // Si las fuentes cargan, ocúltalo al tiro
   useEffect(() => {
     if (fontsLoaded) SplashScreen.hideAsync().catch(() => {});
   }, [fontsLoaded]);
 
-  // Inicializa notificaciones diferidas
+  // Notificaciones diferidas
   useEffect(() => {
     const t = setTimeout(() => { setupNotificationsDeferred(); }, 1200);
     return () => clearTimeout(t);
   }, []);
 
-  // Lógica de streak
+  // Streak
   useEffect(() => {
     (async () => {
       const today = dateOnlyStr(new Date());
@@ -268,8 +269,9 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <AuthGate>
-        <CrashCatcher>
+      {/* CrashCatcher POR FUERA del gate para atrapar errores tempranos */}
+      <CrashCatcher>
+        <AuthGate>
           <NavigationContainer theme={navTheme}>
             <Stack.Navigator screenOptions={{ headerShown: false }}>
               <Stack.Screen name="Main"        component={MainTabs} />
@@ -279,8 +281,8 @@ export default function App() {
               <Stack.Screen name="Medications" component={MedicationsScreenLazy} />
             </Stack.Navigator>
           </NavigationContainer>
-        </CrashCatcher>
-      </AuthGate>
+        </AuthGate>
+      </CrashCatcher>
     </AuthProvider>
   );
 }
