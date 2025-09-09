@@ -36,6 +36,7 @@
     "expo-constants": "~15.5.5",
     "expo-crypto": "~13.0.2",
 
+    "expo-auth-session": "~5.0.7",
     "d3-shape": "^3.2.0"
   },
   "devDependencies": {
