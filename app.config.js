@@ -10,10 +10,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'latido',
   version: '1.0.0',
   orientation: 'portrait',
-  scheme: 'latido', // necesario para los deep links de AuthSession
-  icon: './icon.png', // icono en la raíz del repo
+
+  // Antes: scheme: 'latido'
+  // Ahora: mantenemos 'latido' y añadimos el esquema requerido por Google
+  scheme: [
+    'latido',
+    'com.googleusercontent.apps.107727896179-l6ggvj14sf7mvs24mqbrom94lu367ib2'
+  ],
+
+  icon: './icon.png',
   splash: {
-    image: './splash.png', // splash en la raíz
+    image: './splash.png',
     resizeMode: 'contain',
     backgroundColor: '#ffffff',
   },
@@ -25,13 +32,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     package: 'com.latido.app',
     adaptiveIcon: {
-      foregroundImage: './adaptive-icon.png', // en la raíz
+      foregroundImage: './adaptive-icon.png',
       backgroundColor: '#ffffff',
     },
   },
   extra: {
     eas: { projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f' },
-    // opcional: por si algún código prefiere leer desde extra
     google: {
       androidClientId: ANDROID_CLIENT,
       webClientId: WEB_CLIENT,
