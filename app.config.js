@@ -1,4 +1,3 @@
-// app.config.ts
 import { ConfigContext, ExpoConfig } from 'expo/config';
 
 const ANDROID_CLIENT = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
@@ -10,17 +9,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   slug: 'latido',
   version: '1.0.0',
   orientation: 'portrait',
-
-  // Antes: scheme: 'latido'
-  // Ahora: mantenemos 'latido' y añadimos el esquema requerido por Google
-  scheme: [
-    'latido',
-    'com.googleusercontent.apps.107727896179-l6ggvj14sf7mvs24mqbrom94lu367ib2'
-  ],
-
+  scheme: 'latido',
   icon: './icon.png',
   splash: {
-   // image: './splash.png',
+    image: './splash.png',
     resizeMode: 'contain',
     backgroundColor: '#ffffff',
   },
