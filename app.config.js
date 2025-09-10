@@ -1,35 +1,42 @@
-import { ExpoConfig } from "expo/config";
+// app.config.ts
+import { ConfigContext, ExpoConfig } from 'expo/config';
 
-const config: ExpoConfig = {
-  name: "Latido",
-  slug: "latido",
-  scheme: "latido",
-  version: "1.0.0",
-  orientation: "portrait",
-  icon: "./assets/icon.png",
+const ANDROID_CLIENT = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+const WEB_CLIENT = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+export default ({ config }: ConfigContext): ExpoConfig => ({
+  ...config,
+  name: 'Latido',
+  slug: 'latido',
+  version: '1.0.0',
+  orientation: 'portrait',
+  scheme: 'latido', // necesario para los deep links de AuthSession
+  icon: './icon.png', // icono en la raíz del repo
   splash: {
-    image: "./assets/splash.png",
-    resizeMode: "contain",
-    backgroundColor: "#ffffff"
+    image: './splash.png', // splash en la raíz
+    resizeMode: 'contain',
+    backgroundColor: '#ffffff',
   },
-  assetBundlePatterns: ["**/*"],
+  assetBundlePatterns: ['**/*'],
+  ios: {
+    bundleIdentifier: 'com.latido.app',
+    supportsTablet: false,
+  },
   android: {
-    package: "com.latido.app",
+    package: 'com.latido.app',
     adaptiveIcon: {
-      foregroundImage: "./assets/adaptive-icon.png",
-      backgroundColor: "#ffffff"
-    }
+      foregroundImage: './adaptive-icon.png', // en la raíz
+      backgroundColor: '#ffffff',
+    },
   },
   extra: {
-    eas: {
-      // ⚠️ Reemplaza este UUID por el de tu proyecto en expo.dev
-      projectId: "REEMPLAZA_CON_TU_PROJECT_ID"
+    eas: { projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f' },
+    // opcional: por si algún código prefiere leer desde extra
+    google: {
+      androidClientId: ANDROID_CLIENT,
+      webClientId: WEB_CLIENT,
     },
-    // Estas variables vienen del profile "production" de eas.json
-    EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-    EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-    NODE_ENV: process.env.NODE_ENV ?? "development"
-  }
-};
-
-export default config;
+  },
+  runtimeVersion: { policy: 'sdkVersion' },
+  updates: { enabled: true },
+});
