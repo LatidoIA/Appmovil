@@ -1,29 +1,42 @@
 import React, { useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { Ionicons } from '@expo/vector-icons';
+import { makeRedirectUri } from 'expo-auth-session';
 import CustomText from '../CustomText';
 import theme from '../theme';
 import { useAuth } from './AuthContext';
 
 WebBrowser.maybeCompleteAuthSession();
 
-export default function AuthScreen({ navigation }) {
-  const { signInWithGoogleResult } = useAuth();
+export default function AuthScreen() {
+  const { signInWithGoogleResult, continueAsGuest } = useAuth();
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
     webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-    // scopes mínimas
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID, // si no tienes iOS está ok undefined
     scopes: ['profile', 'email'],
+    redirectUri: makeRedirectUri({ scheme: 'latido' }),
+    useProxy: false,
   });
 
   useEffect(() => {
     (async () => {
-      if (response?.type !== 'success') return;
+      if (!response) return;
+      if (response.type === 'dismiss' || response.type === 'cancel') return;
+
+      if (response.type !== 'success') {
+        Alert.alert('Google', 'No se pudo completar el inicio de sesión.');
+        return;
+      }
+
       const accessToken = response.authentication?.accessToken;
-      if (!accessToken) return;
+      if (!accessToken) {
+        Alert.alert('Google', 'No se recibió accessToken.');
+        return;
+      }
 
       try {
         const res = await fetch('https://www.googleapis.com/userinfo/v2/me', {
@@ -31,38 +44,48 @@ export default function AuthScreen({ navigation }) {
         });
         const info = await res.json();
         await signInWithGoogleResult({ idToken: null, info });
-        // volver a la cuenta
-        navigation.goBack();
       } catch (e) {
-        // si falla el perfil, al menos cerrar el modal
-        navigation.goBack();
+        Alert.alert('Google', 'Error obteniendo tu perfil.');
       }
     })();
-  }, [response]);
+  }, [response, signInWithGoogleResult]);
 
   return (
     <View style={styles.container}>
-      <CustomText style={styles.title}>Accede con Google</CustomText>
-
       <TouchableOpacity
         disabled={!request}
         style={[styles.btn, !request && styles.btnDisabled]}
-        onPress={() => promptAsync({ useProxy: false, showInRecents: true })}
+        onPress={() => promptAsync()}
       >
         <Ionicons name="logo-google" size={20} />
         <CustomText style={styles.btnText}>Continuar con Google</CustomText>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.link} onPress={() => navigation.goBack()}>
-        <CustomText style={{ textDecorationLine: 'underline' }}>Seguir sin registrarme</CustomText>
+      <View style={{ height: 12 }} />
+
+      <TouchableOpacity
+        style={[styles.btn, styles.altBtn]}
+        onPress={continueAsGuest}
+      >
+        <Ionicons name="arrow-forward-circle" size={20} />
+        <CustomText style={styles.btnText}>Entrar sin cuenta</CustomText>
       </TouchableOpacity>
+
+      {!request && (
+        <>
+          <View style={{ height: 16 }} />
+          <ActivityIndicator />
+          <CustomText style={{ marginTop: 8, opacity: 0.6 }}>
+            Preparando autenticación…
+          </CustomText>
+        </>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#fff' },
-  title: { fontSize: 18, marginBottom: 16, color: theme?.colors?.text ?? '#111' },
   btn: {
     flexDirection: 'row',
     gap: 8,
@@ -71,9 +94,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    elevation: 3,
+    elevation: 3
+  },
+  altBtn: {
+    backgroundColor: '#f5f5f5',
   },
   btnDisabled: { opacity: 0.5 },
-  btnText: { fontSize: 16, color: theme?.colors?.text ?? '#111' },
-  link: { marginTop: 16 },
+  btnText: { fontSize: 16, color: theme?.colors?.text ?? '#111' }
 });
