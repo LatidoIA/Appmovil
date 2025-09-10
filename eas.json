@@ -1,11 +1,12 @@
 {
-  "cli": { "version": ">= 11.0.0", "appVersionSource": "remote" },
   "build": {
     "production": {
-      "android": { "buildType": "app-bundle", "credentialsSource": "local" }
-    },
-    "apk": {
-      "android": { "buildType": "apk", "credentialsSource": "local" }
+      "android": { "buildType": "apk" },
+      "env": {
+        "NODE_ENV": "production",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "107727896179-l6ggvj14sf7mvs24mqbrom94lu367ib2.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "107727896179-nab9msheben3smld5q950gqq3b234g50.apps.googleusercontent.com"
+      }
     }
   }
 }
