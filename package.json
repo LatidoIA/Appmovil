@@ -41,7 +41,7 @@
   },
   "devDependencies": {
     "@babel/core": "7.24.0",
-    "babel-preset-expo": "10.0.0",
+    "babel-preset-expo": "10.0.1",
     "expo-build-properties": "0.12.5"
   },
   "overrides": {
