@@ -1,50 +1,48 @@
-module.exports = () => ({
-  expo: {
-    name: 'Latido',
-    slug: 'latido',
-    version: '1.0.0',
-    sdkVersion: '51.0.0',
-    scheme: 'latido',
-    platforms: ['ios', 'android'],
-    orientation: 'portrait',
-    // 👇 Rutas corregidas (archivos están en la raíz del repo)
-    icon: './icon.png',
-    userInterfaceStyle: 'light',
+// app.config.js
+import "dotenv/config";
+
+export default ({ config }) => {
+  // IDs desde variables de entorno (EAS) con fallback a valores conocidos
+  const extra = {
+    googleAndroidClientId:
+      process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ??
+      "107727896179-l6ggvj14sf7mvs24mqbrom94lu367ib2.apps.googleusercontent.com",
+    googleWebClientId:
+      process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ??
+      "107727896179-nab9msheben3smld5q950gqq3b234g50.apps.googleusercontent.com",
+    // opcional, por si más adelante agregas iOS
+    googleIosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? null,
+    // para Expo Go / dev builds puedes reutilizar el Web
+    googleExpoClientId:
+      process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ??
+      "107727896179-nab9msheben3smld5q950gqq3b234g50.apps.googleusercontent.com",
+  };
+
+  return {
+    ...config,
+    name: "Latido",
+    slug: "latido",
+    version: "1.0.0",
+    orientation: "portrait",
+    scheme: "latido", // necesario para el redirectUri de AuthSession
+    icon: "./assets/icon.png", // asegúrate de que exista
     splash: {
-      image: './splash.png',
-      resizeMode: 'contain',
-      backgroundColor: '#ffffff'
+      image: "./assets/splash.png", // asegúrate de que exista (o quita esta línea)
+      resizeMode: "contain",
+      backgroundColor: "#ffffff",
+    },
+    assetBundlePatterns: ["**/*"],
+    ios: {
+      supportsTablet: true,
+      bundleIdentifier: "com.latido.app",
     },
     android: {
-      package: 'com.latido.app',
-      permissions: [
-        'android.permission.BLUETOOTH',
-        'android.permission.BLUETOOTH_ADMIN',
-        'android.permission.BLUETOOTH_SCAN',
-        'android.permission.BLUETOOTH_CONNECT',
-        'android.permission.ACCESS_FINE_LOCATION',
-        'android.permission.ACTIVITY_RECOGNITION',
-        'android.permission.BODY_SENSORS',
-        'android.permission.POST_NOTIFICATIONS'
-      ]
+      package: "com.latido.app",
+      adaptiveIcon: {
+        foregroundImage: "./assets/adaptive-icon.png", // asegúrate de que exista (o elimina esta sección)
+        backgroundColor: "#FFFFFF",
+      },
     },
-    plugins: [
-      [
-        'expo-build-properties',
-        {
-          android: {
-            compileSdkVersion: 34,
-            targetSdkVersion: 34,
-            minSdkVersion: 26,
-            kotlinVersion: '1.9.24'
-          }
-        }
-      ]
-    ],
-    extra: {
-      eas: {
-        projectId: '2ac93018-3731-4e46-b345-6d54a5502b8f'
-      }
-    }
-  }
-});
+    extra,
+  };
+};
