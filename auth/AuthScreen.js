@@ -1,36 +1,75 @@
-import React, { useEffect } from 'react';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
-import { Ionicons } from '@expo/vector-icons';
-import CustomText from '../CustomText';
-import theme from '../theme';
-import { useAuth } from './AuthContext';
+import React, { useEffect } from "react";
+import { View, TouchableOpacity, StyleSheet, Platform, Alert } from "react-native";
+import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
+import { makeRedirectUri } from "expo-auth-session";
+import { Ionicons } from "@expo/vector-icons";
+import CustomText from "../CustomText";
+import theme from "../theme";
+import { useAuth } from "./AuthContext";
+import Constants from "expo-constants";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function AuthScreen() {
   const { signInWithGoogleResult } = useAuth();
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-    iosClientId:     process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-    webClientId:     process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-    scopes: ['profile', 'email'],
+  // IDs desde app.config (preferido) con fallback a variables de entorno
+  const extra = Constants?.expoConfig?.extra ?? {};
+  const androidClientId =
+    extra.googleAndroidClientId ?? process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+  const iosClientId =
+    extra.googleIosClientId ?? process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+  const webClientId =
+    extra.googleWebClientId ?? process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  const expoClientId =
+    extra.googleExpoClientId ?? process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+  const redirectUri = makeRedirectUri({
+    // usa el scheme declarado en app.config.js
+    scheme: Constants?.expoConfig?.scheme ?? "latido",
   });
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    androidClientId,
+    iosClientId,
+    webClientId,
+    expoClientId, // para Expo Go / dev client
+    scopes: ["profile", "email"],
+    redirectUri,
+  });
+
+  // Evita crashear si falta el client id en Android release
+  if (Platform.OS === "android" && !androidClientId) {
+    return (
+      <View style={styles.container}>
+        <CustomText style={styles.warn}>
+          Falta configurar {"`EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`"} / extra.googleAndroidClientId.
+        </CustomText>
+      </View>
+    );
+  }
 
   useEffect(() => {
     (async () => {
-      if (response?.type !== 'success') return;
+      if (response?.type !== "success") return;
+
       const accessToken = response.authentication?.accessToken;
       if (!accessToken) return;
 
-      // Perfil básico de Google
-      const res = await fetch('https://www.googleapis.com/userinfo/v2/me', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const info = await res.json();
-      await signInWithGoogleResult({ idToken: null, info });
+      try {
+        // userinfo v3 (estable)
+        const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const info = await res.json();
+
+        // Si tu backend espera idToken y lo necesitas, podrías intercambiar el code por tokens.
+        // Aquí seguimos tu flujo actual (sin idToken).
+        await signInWithGoogleResult({ idToken: null, info });
+      } catch (e) {
+        Alert.alert("Error", "No se pudo obtener el perfil de Google.");
+      }
     })();
   }, [response, signInWithGoogleResult]);
 
@@ -49,17 +88,18 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  container: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   btn: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
-    alignItems: 'center',
-    backgroundColor: '#fff',
+    alignItems: "center",
+    backgroundColor: "#fff",
     borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    elevation: 3
+    elevation: 3,
   },
   btnDisabled: { opacity: 0.5 },
-  btnText: { fontSize: 16, color: theme?.colors?.text ?? '#111' }
+  btnText: { fontSize: 16, color: theme?.colors?.text ?? "#111" },
+  warn: { textAlign: "center", color: "#b00020" },
 });
