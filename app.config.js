@@ -12,8 +12,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: 'latido',
   icon: './icon.png',
   splash: {
-    image: './splash.png',
-    resizeMode: 'contain',
     backgroundColor: '#ffffff',
   },
   assetBundlePatterns: ['**/*'],
