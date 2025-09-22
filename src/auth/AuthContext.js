@@ -1,28 +1,47 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+// src/auth/AuthContext.tsx (o .js si lo usas en JS)
+import React, { createContext, useContext, useMemo, useState, useEffect } from 'react';
+import { auth } from '../lib/firebase';
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut as fbSignOut,
+  User as FirebaseUser,
+} from 'firebase/auth';
 
-const AuthCtx = createContext(null);
+type User = { id: string; email: string | null; name?: string | null };
+type Ctx = {
+  user: User | null;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  registerWithEmail: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
+};
 
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+const AuthCtx = createContext<Ctx | null>(null);
 
-  const signInWithGoogleResult = async ({ idToken = null, info = null }) => {
-    // Guarda lo esencial del perfil básico de Google (si vino)
-    if (info) {
-      setUser({
-        id: info.id,
-        email: info.email,
-        name: info.name,
-        picture: info.picture,
-      });
-      return;
-    }
-    // fallback mínimo si no vino info
-    setUser({ id: 'local', email: null, name: 'Usuario' });
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+
+  // Mantén sesión si ya estaba logueado
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u: FirebaseUser | null) => {
+      if (u) setUser({ id: u.uid, email: u.email, name: u.displayName });
+      else setUser(null);
+    });
+    return unsub;
+  }, []);
+
+  const signInWithEmail = async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email, password);
   };
 
-  const signOut = () => setUser(null);
+  const registerWithEmail = async (email: string, password: string) => {
+    await createUserWithEmailAndPassword(auth, email, password);
+  };
 
-  const value = useMemo(() => ({ user, signInWithGoogleResult, signOut }), [user]);
+  const signOut = async () => fbSignOut(auth);
+
+  const value = useMemo(() => ({ user, signInWithEmail, registerWithEmail, signOut }), [user]);
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }
 
