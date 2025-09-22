@@ -1,81 +1,42 @@
 // src/navigation/RootNavigator.tsx
 import React from 'react';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, Text, Button } from 'react-native';
+import { View, Text } from 'react-native';
 import { useAuth } from '../auth/AuthContext';
-import { MaterialIcons } from '@expo/vector-icons';
+import LoginScreen from '../screens/LoginScreen';
 
-type RootStackParamList = { App: undefined; Auth: undefined };
+type RootStackParamList = {
+  Auth: undefined;
+  App: undefined;
+};
 
-const Stack = createStackNavigator<RootStackParamList>();
-const Tabs = createBottomTabNavigator();
+const Stack = createNativeStackNavigator<RootStackParamList>();
+const Tab = createBottomTabNavigator();
 
-function HomeScreen() {
+function Home() {
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ fontSize: 18 }}>Inicio</Text>
-    </View>
-  );
-}
-
-function ProfileScreen() {
-  const { user, signOut } = useAuth();
-  return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-      <Text style={{ fontSize: 16 }}>{user?.name ?? 'Sin usuario'}</Text>
-      <Button title="Cerrar sesión" onPress={signOut} />
+      <Text>Home</Text>
     </View>
   );
 }
 
 function AppTabs() {
   return (
-    <Tabs.Navigator screenOptions={{ headerShown: false }}>
-      <Tabs.Screen
-        name="Home"
-        component={HomeScreen}
-        options={{
-          tabBarIcon: ({ color, size }) => <MaterialIcons name="home" size={size} color={color} />
-        }}
-      />
-      <Tabs.Screen
-        name="Perfil"
-        component={ProfileScreen}
-        options={{
-          tabBarIcon: ({ color, size }) => <MaterialIcons name="person" size={size} color={color} />
-        }}
-      />
-    </Tabs.Navigator>
-  );
-}
-
-function LoginScreen() {
-  // Botón “mock” para probar el flujo; reemplaza con tu Google Sign-In cuando quieras
-  const { signInWithGoogleResult } = useAuth();
-  return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <Button
-        title="Entrar (demo)"
-        onPress={() =>
-          signInWithGoogleResult({
-            info: { id: 'demo', email: 'demo@latido.app', name: 'Demo' }
-          })
-        }
-      />
-    </View>
+    <Tab.Navigator screenOptions={{ headerShown: false }}>
+      <Tab.Screen name="Home" component={Home} />
+    </Tab.Navigator>
   );
 }
 
 export default function RootNavigator() {
   const { user } = useAuth();
+
   return (
     <NavigationContainer
-      theme={{
-        ...DefaultTheme,
-        colors: { ...DefaultTheme.colors, background: 'white' }
-      }}
+      theme={{ ...DefaultTheme, colors: { ...DefaultTheme.colors, background: 'white' } }}
     >
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
