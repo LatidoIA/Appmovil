@@ -19,6 +19,7 @@
     "@react-navigation/native": "^6.1.18",
     "@react-navigation/stack": "^6.4.1",
     "@react-navigation/bottom-tabs": "^6.5.20",
+    "@react-navigation/native-stack": "^6.9.26",
 
     "@react-native-async-storage/async-storage": "1.23.1",
     "react-native-gesture-handler": "2.16.2",
