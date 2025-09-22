@@ -29,15 +29,22 @@ jobs:
       - name: Force npm registry to public npmjs
         run: npm config set registry https://registry.npmjs.org/
 
+      # ⬇️ mismo paso pero con fallback automático a `npm i`
       - name: Install dependencies
         run: |
+          set -e
           if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-            echo "Lockfile encontrado -> npm ci"
-            npm ci
+            echo "Lockfile encontrado -> npm ci (con fallback)"
+            npm ci || (echo "npm ci falló -> usando npm i (fallback)" && npm i --no-audit --no-fund --legacy-peer-deps)
           else
             echo "Sin lockfile -> npm i (fallback)"
             npm i --no-audit --no-fund --legacy-peer-deps
           fi
+
+      # ⬇️ Verificar que 'firebase' quedó instalada (y fallar si falta)
+      - name: Verify firebase installed
+        run: |
+          node -e "try{console.log('firebase OK:', require('firebase/package.json').version)}catch(e){console.error('Firebase no instalada. Asegúrate de agregar \"firebase\" en dependencies de package.json.'); process.exit(1)}"
 
       # Alinear Babel preset con SDK 51 (v10)
       - name: Ensure Babel preset & core (CI-only)
