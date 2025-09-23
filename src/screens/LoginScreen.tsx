@@ -1,4 +1,3 @@
-// src/screens/LoginScreen.tsx
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import { useAuth } from '../auth/AuthContext';
@@ -9,11 +8,24 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const ensureValid = () => {
+    if (!email.trim() || !email.includes('@')) {
+      Alert.alert('Error', 'Ingresa un correo válido.');
+      return false;
+    }
+    if (password.length < 6) {
+      Alert.alert('Error', 'La contraseña debe tener al menos 6 caracteres.');
+      return false;
+    }
+    return true;
+  };
+
   const login = async () => {
+    if (!ensureValid()) return;
     try {
       setBusy(true);
       await signInWithEmail(email.trim(), password);
-    } catch (e: any) {
+    } catch (e) {
       Alert.alert('Error', e?.message ?? 'No se pudo iniciar sesión');
     } finally {
       setBusy(false);
@@ -21,11 +33,12 @@ export default function LoginScreen() {
   };
 
   const register = async () => {
+    if (!ensureValid()) return;
     try {
       setBusy(true);
       await registerWithEmail(email.trim(), password);
       Alert.alert('Listo', 'Cuenta creada, ya estás dentro.');
-    } catch (e: any) {
+    } catch (e) {
       Alert.alert('Error', e?.message ?? 'No se pudo crear la cuenta');
     } finally {
       setBusy(false);
