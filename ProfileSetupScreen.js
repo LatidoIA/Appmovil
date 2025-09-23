@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomText from './CustomText';
 import CustomButton from './CustomButton';
 import theme from './theme';
-import { useAuth } from './auth/AuthContext';
+import { useAuth } from './src/auth/AuthContext';
 
 const PROFILE_KEY = '@latido_profile';
 
