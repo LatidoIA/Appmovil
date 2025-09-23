@@ -1,7 +1,7 @@
 // src/screens/LoginScreen.tsx
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, Alert, StyleSheet } from 'react-native';
-import { useAuth } from './src/auth/AuthContext';
+import { useAuth } from '../auth/AuthContext';
 
 export default function LoginScreen() {
   const { signInWithEmail, registerWithEmail } = useAuth();
