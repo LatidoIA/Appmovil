@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { makeRedirectUri } from 'expo-auth-session';
 import CustomText from '../CustomText';
 import theme from '../theme';
-import { useAuth } from './AuthContext';
+import { useAuth } from './src/auth/AuthContext';
 
 WebBrowser.maybeCompleteAuthSession();
 
