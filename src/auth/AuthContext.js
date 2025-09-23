@@ -1,13 +1,14 @@
+// src/auth/AuthContext.js
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { auth } from '../lib/firebase';
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  signOut,
   createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,   // <- renombrado
 } from 'firebase/auth';
+import { auth } from '../lib/firebase';
 
-const AuthContext = createContext(undefined);
+const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -21,22 +22,26 @@ export const AuthProvider = ({ children }) => {
     return unsub;
   }, []);
 
-  const value = useMemo(
-    () => ({
+  const value = useMemo(() => {
+    const _login = (email, password) =>
+      signInWithEmailAndPassword(auth, email, password);
+    const _register = (email, password) =>
+      createUserWithEmailAndPassword(auth, email, password);
+    const _logout = () => firebaseSignOut(auth);
+
+    return {
       user,
       loading,
-      async login(email, password) {
-        await signInWithEmailAndPassword(auth, email, password);
-      },
-      async register(email, password) {
-        await createUserWithEmailAndPassword(auth, email, password);
-      },
-      async logout() {
-        await signOut(auth);
-      },
-    }),
-    [user, loading]
-  );
+      // nombres “nuevos” que usan tus pantallas
+      signInWithEmail: _login,
+      registerWithEmail: _register,
+      signOut: _logout,
+      // y dejamos también los antiguos por compatibilidad
+      login: _login,
+      register: _register,
+      logout: _logout,
+    };
+  }, [user, loading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
