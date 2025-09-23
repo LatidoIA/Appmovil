@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, ActivityIndicator } from 'react-native';
-import { useAuth } from './AuthContext';
+import { useAuth } from './src/auth/AuthContext';
 import AuthScreen from './AuthScreen';
 
 export default function AuthGate({ children }) {
