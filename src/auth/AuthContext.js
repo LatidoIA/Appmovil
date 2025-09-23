@@ -1,26 +1,16 @@
-// src/auth/AuthContext.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { auth } from '../firebase';
+import { auth } from '../lib/firebase';
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
   createUserWithEmailAndPassword,
-  User,
 } from 'firebase/auth';
 
-type AuthCtx = {
-  user: User | null;
-  loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
-};
+const AuthContext = createContext(undefined);
 
-const AuthContext = createContext<AuthCtx | undefined>(undefined);
-
-export const AuthProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,7 +21,7 @@ export const AuthProvider: React.FC<React.PropsWithChildren<{}>> = ({ children }
     return unsub;
   }, []);
 
-  const value = useMemo<AuthCtx>(
+  const value = useMemo(
     () => ({
       user,
       loading,
