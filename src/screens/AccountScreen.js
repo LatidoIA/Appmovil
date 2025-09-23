@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import CustomText from '../CustomText';
-import { useAuth } from './src/auth/AuthContext';
+import { useAuth } from '../auth/AuthContext';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 export default function AccountScreen({ navigation }) {
