@@ -1,58 +1,29 @@
-// src/navigation/RootNavigator.tsx
 import React from 'react';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, Text, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
 import { useAuth } from '../auth/AuthContext';
 import LoginScreen from '../screens/LoginScreen';
+import AccountScreen from '../screens/AccountScreen';
 
-type RootStackParamList = {
-  Auth: undefined;
-  App: undefined;
-};
+const Stack = createNativeStackNavigator();
 
-type Props = { onReady?: () => void };
-
-const Stack = createNativeStackNavigator<RootStackParamList>();
-const Tab = createBottomTabNavigator();
-
-function Home() {
-  return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <Text>Home</Text>
-    </View>
-  );
-}
-
-function AppTabs() {
-  return (
-    <Tab.Navigator screenOptions={{ headerShown: false }}>
-      <Tab.Screen name="Home" component={Home} />
-    </Tab.Navigator>
-  );
-}
-
-export default function RootNavigator({ onReady }: Props) {
+export default function RootNavigator() {
   const { user, loading } = useAuth();
 
-  // Mientras restauramos sesión desde Firebase (persistencia), muestra loader
   if (loading) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'white' }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator />
       </View>
     );
   }
 
   return (
-    <NavigationContainer
-      onReady={onReady}
-      theme={{ ...DefaultTheme, colors: { ...DefaultTheme.colors, background: 'white' } }}
-    >
+    <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
-          <Stack.Screen name="App" component={AppTabs} />
+          <Stack.Screen name="Account" component={AccountScreen} />
         ) : (
           <Stack.Screen name="Auth" component={LoginScreen} />
         )}
