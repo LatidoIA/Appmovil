@@ -1,16 +1,20 @@
 // App.tsx
-import 'react-native-gesture-handler';
 import React from 'react';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { NavigationContainer } from '@react-navigation/native';
-import AppTabs from './src/navigation/AppTabs';
+import { SafeAreaView, Text } from 'react-native';
 
 export default function App() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <NavigationContainer>
-        <AppTabs />
-      </NavigationContainer>
-    </GestureHandlerRootView>
+    <SafeAreaView
+      style={{
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#101010',
+      }}
+    >
+      <Text style={{ color: 'white', fontSize: 24 }}>
+        Latido IA release OK
+      </Text>
+    </SafeAreaView>
   );
 }
