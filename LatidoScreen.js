@@ -5,7 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Platform,
-  Alert
+  Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,7 +13,7 @@ import CustomText from './CustomText';
 import theme from './theme';
 import { useNavigation } from '@react-navigation/native';
 
-const EXAMS_KEY  = '@latido_exam_history';
+const EXAMS_KEY = '@latido_exam_history';
 const EVENTS_KEY = '@latido_events';
 
 function fmtDate(iso) {
@@ -32,6 +32,7 @@ export default function LatidoScreen() {
 
   // Último resultado
   const [lastExam, setLastExam] = useState(null); // { bpm, takenAt }
+
   const loadLast = async () => {
     try {
       const raw = await AsyncStorage.getItem(EXAMS_KEY);
@@ -57,29 +58,6 @@ export default function LatidoScreen() {
   const [elapsed, setElapsed] = useState(0); // 0..15
   const timerRef = useRef(null);
 
-  const startExam = () => {
-    if (measuring) return;
-    setElapsed(0);
-    setMeasuring(true);
-    timerRef.current && clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setElapsed((s) => {
-        if (s >= 15) {
-          clearInterval(timerRef.current);
-          finishExam();
-          return 15;
-        }
-        return s + 1;
-      });
-    }, 1000);
-  };
-
-  const stopExam = () => {
-    timerRef.current && clearInterval(timerRef.current);
-    setMeasuring(false);
-    setElapsed(0);
-  };
-
   const finishExam = async () => {
     // Demo: BPM “razonable” 58–105 con ligera variabilidad
     const bpm = Math.max(50, Math.min(120, Math.round(70 + Math.random() * 35)));
@@ -102,7 +80,7 @@ export default function LatidoScreen() {
           await AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(events));
         }
       } catch (e) {
-        // noop: la medalla es opcional; si falla no bloqueamos el flujo
+        // noop
       }
 
       Alert.alert('Resultado', `Frecuencia estimada: ${bpm} bpm`);
@@ -112,8 +90,33 @@ export default function LatidoScreen() {
     setElapsed(0);
   };
 
+  const startExam = () => {
+    if (measuring) return;
+    setElapsed(0);
+    setMeasuring(true);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setElapsed((s) => {
+        if (s >= 15) {
+          clearInterval(timerRef.current);
+          finishExam();
+          return 15;
+        }
+        return s + 1;
+      });
+    }, 1000);
+  };
+
+  const stopExam = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setMeasuring(false);
+    setElapsed(0);
+  };
+
   useEffect(() => {
-    return () => { timerRef.current && clearInterval(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, []);
 
   const goHistory = () => navigation.navigate('Historial');
@@ -130,26 +133,40 @@ export default function LatidoScreen() {
       <View style={styles.card}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Ionicons name="pulse-outline" size={22} color={theme.colors.accent} />
-          <CustomText style={[styles.cardTitle, { marginLeft: 6 }]}>Último resultado</CustomText>
+          <CustomText style={[styles.cardTitle, { marginLeft: 6 }]}>
+            Último resultado
+          </CustomText>
         </View>
         {lastExam ? (
           <>
-            <CustomText style={styles.lastValue}>{lastExam.bpm} bpm</CustomText>
-            <CustomText style={styles.lastWhen}>{fmtDate(lastExam.takenAt)}</CustomText>
+            <CustomText style={styles.lastValue}>
+              {lastExam.bpm} bpm
+            </CustomText>
+            <CustomText style={styles.lastWhen}>
+              {fmtDate(lastExam.takenAt)}
+            </CustomText>
           </>
         ) : (
-          <CustomText style={styles.helper}>Aún no registras un examen.</CustomText>
+          <CustomText style={styles.helper}>
+            Aún no registras un examen.
+          </CustomText>
         )}
 
         <TouchableOpacity onPress={goHistory} style={styles.secondaryBtn}>
-          <Ionicons name="time-outline" size={16} color={theme.colors.textPrimary} />
+          <Ionicons
+            name="time-outline"
+            size={16}
+            color={theme.colors.textPrimary}
+          />
           <CustomText style={styles.btnTextAlt}>Ver historial</CustomText>
         </TouchableOpacity>
       </View>
 
       {/* Medición simple */}
       <View style={styles.card}>
-        <CustomText style={styles.cardTitle}>Medición rápida (demo)</CustomText>
+        <CustomText style={styles.cardTitle}>
+          Medición rápida (demo)
+        </CustomText>
         <CustomText style={styles.helper}>
           Mantén el teléfono quieto y respira normal. El demo dura 15 segundos.
         </CustomText>
@@ -165,12 +182,31 @@ export default function LatidoScreen() {
           {!measuring ? (
             <TouchableOpacity onPress={startExam} style={styles.primaryBtn}>
               <Ionicons name="play-outline" size={18} color="#fff" />
-              <CustomText style={styles.btnText}>Iniciar examen</CustomText>
+              <CustomText style={styles.btnText}>
+                Iniciar examen
+              </CustomText>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity onPress={stopExam} style={[styles.secondaryBtn, { borderColor: theme.colors.error }]}>
-              <Ionicons name="stop-outline" size={18} color={theme.colors.error} />
-              <CustomText style={[styles.btnTextAlt, { color: theme.colors.error }]}>Detener</CustomText>
+            <TouchableOpacity
+              onPress={stopExam}
+              style={[
+                styles.secondaryBtn,
+                { borderColor: theme.colors.error },
+              ]}
+            >
+              <Ionicons
+                name="stop-outline"
+                size={18}
+                color={theme.colors.error}
+              />
+              <CustomText
+                style={[
+                  styles.btnTextAlt,
+                  { color: theme.colors.error },
+                ]}
+              >
+                Detener
+              </CustomText>
             </TouchableOpacity>
           )}
         </View>
@@ -182,11 +218,15 @@ export default function LatidoScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, padding: theme.spacing.md },
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+    padding: theme.spacing.md,
+  },
   title: {
     fontSize: theme.fontSizes.lg,
     color: theme.colors.textPrimary,
-    fontFamily: theme.typography.heading.fontFamily
+    fontFamily: theme.typography.heading.fontFamily,
   },
 
   card: {
@@ -195,27 +235,58 @@ const styles = StyleSheet.create({
     borderRadius: theme.shape.borderRadius,
     padding: theme.spacing.md,
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 2 },
-      android: { elevation: 2 }
-    })
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 2,
+      },
+      android: { elevation: 2 },
+    }),
   },
-  cardTitle: { color: theme.colors.textPrimary, fontFamily: theme.typography.subtitle.fontFamily, marginBottom: 6 },
+  cardTitle: {
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.subtitle.fontFamily,
+    marginBottom: 6,
+  },
 
-  lastValue: { fontSize: theme.fontSizes.lg, color: theme.colors.textPrimary, fontFamily: theme.typography.subtitle.fontFamily },
-  lastWhen:  { color: theme.colors.textSecondary, fontFamily: theme.typography.body.fontFamily, marginTop: 2 },
-  helper:    { color: theme.colors.textSecondary, fontFamily: theme.typography.body.fontFamily },
+  lastValue: {
+    fontSize: theme.fontSizes.lg,
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.subtitle.fontFamily,
+  },
+  lastWhen: {
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.body.fontFamily,
+    marginTop: 2,
+  },
+  helper: {
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.body.fontFamily,
+  },
 
   progressWrap: {
     height: 10,
     backgroundColor: theme.colors.background,
     borderRadius: 999,
     overflow: 'hidden',
-    marginTop: theme.spacing.sm
+    marginTop: theme.spacing.sm,
   },
-  progressBar: { height: 10, backgroundColor: theme.colors.primary },
-  progressLabel: { marginTop: 6, color: theme.colors.textSecondary, fontFamily: theme.typography.body.fontFamily },
+  progressBar: {
+    height: 10,
+    backgroundColor: theme.colors.primary,
+  },
+  progressLabel: {
+    marginTop: 6,
+    color: theme.colors.textSecondary,
+    fontFamily: theme.typography.body.fontFamily,
+  },
 
-  actions: { flexDirection: 'row', gap: theme.spacing.sm, marginTop: theme.spacing.sm },
+  actions: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.sm,
+  },
   primaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -223,7 +294,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: theme.shape.borderRadius
+    borderRadius: theme.shape.borderRadius,
   },
   secondaryBtn: {
     flexDirection: 'row',
@@ -234,8 +305,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: theme.shape.borderRadius,
     borderWidth: 1,
-    borderColor: theme.colors.outline
+    borderColor: theme.colors.outline,
   },
-  btnText: { color: '#fff', fontFamily: theme.typography.body.fontFamily },
-  btnTextAlt: { color: theme.colors.textPrimary, fontFamily: theme.typography.body.fontFamily }
+  btnText: {
+    color: '#fff',
+    fontFamily: theme.typography.body.fontFamily,
+  },
+  btnTextAlt: {
+    color: theme.colors.textPrimary,
+    fontFamily: theme.typography.body.fontFamily,
+  },
 });
